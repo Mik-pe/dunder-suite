@@ -1,0 +1,166 @@
+capability network, filesystem
+
+import std.fs as fs
+import std.net as net
+import std.sys as sys
+import std.text as text
+
+import ..src.hylla as hylla
+
+fn request_bytes(raw: string) -> []u8 {
+    mut out: []u8 = []
+    for b in raw.bytes() { out.push(u8(b)) }
+    out
+}
+
+fn make_root() -> Result<string, string> {
+    dir := fs.temp_dir("hylla-suite-")
+    if !dir.ok { return .Err("temp_dir failed") }
+    root := dir.value
+    _ := sys.write_text(root + "/hello.txt", "hi there\n")
+    _ := sys.write_text(root + "/index.html", "<h1>idx</h1>")
+    _ := sys.mkdir(root + "/sub")
+    _ := sys.write_text(root + "/sub/deep.md", "# deep\n")
+    .Ok(root)
+}
+
+fn assert_file(action: hylla.Action, expected: string) {
+    match action {
+        .File(path) => { assert(path == expected) },
+        .Listing(dir) => { assert(dir.len >= 0); assert(false) },
+        .Upload(dest) => { assert(dest.len >= 0); assert(false) },
+        .NotFound => { assert(false) },
+        .NotAllowed => { assert(false) },
+    }
+}
+
+fn assert_listing(action: hylla.Action, expected: string) {
+    match action {
+        .File(path) => { assert(path.len >= 0); assert(false) },
+        .Listing(dir) => { assert(dir == expected) },
+        .Upload(dest) => { assert(dest.len >= 0); assert(false) },
+        .NotFound => { assert(false) },
+        .NotAllowed => { assert(false) },
+    }
+}
+
+fn assert_variant(action: hylla.Action, want: i32) {
+    // 0 File, 1 Listing, 2 Upload, 3 NotFound, 4 NotAllowed
+    match action {
+        .File(path) => { assert(want == 0); assert(path.len > 0) },
+        .Listing(dir) => { assert(want == 1); assert(dir.len > 0) },
+        .Upload(dest) => { assert(want == 2); assert(dest.len > 0) },
+        .NotFound => { assert(want == 3) },
+        .NotAllowed => { assert(want == 4) },
+    }
+}
+
+@test fn route_serves_files_directories_and_index() {
+    tree := make_root()
+    assert(tree.is_ok())
+    match tree {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            assert_file(hylla.route(root, "", "GET", "/hello.txt"), root + "/hello.txt")
+            assert_file(hylla.route(root, "", "GET", "/"), root + "/index.html")
+            assert_listing(hylla.route(root, "", "GET", "/sub"), root + "/sub")
+            assert_file(hylla.route(root, "", "HEAD", "/hello.txt"), root + "/hello.txt")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn route_rejects_traversal_and_missing_paths() {
+    tree := make_root()
+    assert(tree.is_ok())
+    match tree {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            assert_variant(hylla.route(root, "", "GET", "/../secret"), 3)
+            assert_variant(hylla.route(root, "", "GET", "/a/../.."), 3)
+            assert_variant(hylla.route(root, "", "GET", "/missing.txt"), 3)
+            assert_variant(hylla.route(root, "", "GET", "no-slash"), 3)
+            assert_file(hylla.route(root, "", "GET", "/hello.txt?range=0"), root + "/hello.txt")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn route_uploads_only_when_enabled() {
+    tree := make_root()
+    assert(tree.is_ok())
+    match tree {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            match hylla.route(root, root + "/inbox", "PUT", "/report.txt") {
+                .File(path) => { assert(path.len >= 0); assert(false) },
+                .Listing(dir) => { assert(dir.len >= 0); assert(false) },
+                .Upload(dest) => { assert(dest == root + "/inbox/report.txt") },
+                .NotFound => { assert(false) },
+                .NotAllowed => { assert(false) },
+            }
+            assert_variant(hylla.route(root, "", "PUT", "/report.txt"), 4)
+            assert_variant(hylla.route(root, root + "/inbox", "PUT", "/../escape.txt"), 3)
+            assert_variant(hylla.route(root, "", "DELETE", "/hello.txt"), 4)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn content_type_maps_common_extensions() {
+    assert(hylla.content_type("a.html") == "text/html; charset=utf-8")
+    assert(hylla.content_type("a.png") == "image/png")
+    assert(hylla.content_type("a.json") == "application/json; charset=utf-8")
+    assert(hylla.content_type("a.ddr") == "text/plain; charset=utf-8")
+    assert(hylla.content_type("a.weird") == "application/octet-stream")
+    assert(hylla.content_type("noext") == "application/octet-stream")
+}
+
+@test fn handle_serves_a_real_request_over_loopback() {
+    tree := make_root()
+    assert(tree.is_ok())
+    match tree {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            listen := net.TcpListener::listen_addr(
+                net.SocketAddr { ip: .V4(127, 0, 0, 1), port: 0, scope_id: 0 }, 4)
+            assert(listen.ok)
+            mut listener := listen.listener
+            port := net.local_port(&listener)
+
+            connect := net.TcpStream::connect_addr(
+                net.SocketAddr { ip: .V4(127, 0, 0, 1), port: u16(port), scope_id: 0 })
+            assert(connect.ok)
+            mut client := connect.stream
+            sent := net.write_all(&client, &request_bytes("GET /hello.txt HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n"))
+            assert(sent.ok)
+
+            accepted := listener.accept()
+            assert(accepted.ok)
+            mut server := accepted.stream
+            cfg := hylla.Config {
+                root: root.clone(),
+                port: port,
+                upload_dir: "",
+                timeout_ms: 5000,
+                max_body: 65536,
+            }
+            hylla.handle(&server, &cfg)
+            _ := server.close()
+
+            mut response: []u8 = []
+            mut round := 0
+            while round < 16 {
+                read := client.read_append(&mut response, 4096)
+                if !read.ok || read.eof || read.count == 0 { break }
+                round += 1
+            }
+            _ := client.close()
+            decoded := sys.decode_u8(&response)
+            assert(decoded.ok)
+            assert(text.find(decoded.value, "200") >= 0)
+            assert(text.find(decoded.value, "hi there") >= 0)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

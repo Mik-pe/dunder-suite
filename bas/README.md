@@ -1,81 +1,66 @@
 # bas — process supervisor
 
-**CLI:** `bas` · **Library:** `import bas` · **Status:** planned · **Target:** Dunder 0.5.0
+**CLI:** `bas` · **Library:** `import bas` · **Status:** v0.1.0 — implemented, tests passing · **Target:** Dunder 0.5.0
 
 *Bas* is Swedish for "foreman". Run a set of processes from one file, watch
-them, restart what dies, and stream prefixed output — a minimal Procfile
-manager built on `std.process`.
+them, restart what dies with a bounded budget, and stream prefixed output —
+a minimal Procfile manager built on `std.process`.
 
 ## Purpose
 
 One command to bring a dev stack up and keep it up:
 
-- Reads a `basfile` (or `Procfile`): `name: command arg arg ...`
-- Spawns every entry, prefixes each line of output with its name
-- Restarts crashed processes with backoff; `bas run <name>` for a single one
-- Ctrl-C tears the whole set down via `terminate` on remaining children
+- Reads a `basfile`: `name: program arg arg ...` (# comments, blank lines ok)
+- Spawns every entry with piped output; each line is prefixed `[name]`
+- Restarts failing entries up to `--restarts N` (default 0); clean exits stay down
+- `bas run NAME` runs a single entry in the foreground with inherited stdio
+- Returns the worst exit code across all runs
 
-## CLI
+## CLI (v0.1.0)
 
 ```sh
-bas                       # run everything in ./basfile
-bas -f deploy.basfile     # choose a file
-bas run worker            # just one entry, foreground-style
-bas --no-restart flaky    # let it die and report the exit code
+bas                                  # run everything in ./basfile
+bas --file deploy.basfile            # choose a file
+bas --restarts 2                     # allow 2 retries per failing entry
+bas run web                          # one entry, foreground
 ```
 
-A `basfile` for a small web stack:
-
 ```text
-web:     hylla --port 8080 --dir dist
-api:     ./server --listen 127.0.0.1:9000
-worker:  ./jobs --queue default
-```
-
-Output:
-
-```text
-[web]  serving dist on 0.0.0.0:8080
-[api]  listening on 127.0.0.1:9000
-[worker] exited 1, restarting in 2s (attempt 2)
+$ bas --file basfile --restarts 2
+[greet] hello from bas
+[bas] greet exited 0
+[bas] flaky exited 1
+[bas] flaky restarting (attempt 2)
+[bas] flaky exited 1
 ```
 
 ## Library
 
-```dunder
-import bas
-
-fn main() -> i32 {
-    mut spec := bas.Spec::new()
-    spec.add("web", "hylla", ["--port", "8080"])
-    spec.add("worker", "./jobs", [])
-    supervisor := bas.Supervisor::new(&spec)
-    return supervisor.run()      // blocks until stopped; returns worst exit code
-}
-```
-
-Planned API:
-
 | Item | Meaning |
 | --- | --- |
-| `Spec` | Ordered entries: name, program, args, restart policy |
-| `load(path) -> Result<Spec, Error>` | Parses a basfile/Procfile |
-| `Supervisor::run()` | Spawn loop over `ChildSet`; readers via tasks; restart backoff |
-| `Event { kind, name, detail }` | Structured lifecycle events, feedable into `spar` |
+| `Entry { name, program, args }` | One supervisor unit |
+| `parse_basfile(content)` / `load(path)` | Parser with line-numbered errors |
+| `run_single(&Entry) -> i32` | Foreground exec, returns the exit code |
+| `supervise(&[]Entry, restarts) -> i32` | ChildSet loop: `wait_any` poll, `try_wait` drain/reap, restart on nonzero exit |
+
+The supervisor loop is a single-threaded event cycle: `ChildSet.wait_any`
+polls the piped fds, `try_wait` drains new output and reaps exits, and line
+buffers keep partial lines between rounds. Ctrl-C handling (signal-aware
+teardown of the whole set) is planned for v0.2.
 
 ## Dunder capabilities used
 
 | Area | What |
 | --- | --- |
-| `std.process` | `Command::spawn`, `Child.wait`/`try_wait`/`read_stdout`/`terminate`, `ChildSet::try_insert` with `Result<i32, Child>` |
-| Tasks | One reader task per child merging prefixed lines; `Sendable` event batches |
-| `sys` | Clock for backoff timing, `sleep_ms` |
+| `std.process` | `Command` (piped stdio, inherit), `Output`, `ChildSet::{new, try_insert, wait_any, try_wait}` with `Result<i32, Child>` |
+| `sys` | `decode_u8_range` for output framing, `sleep_ms` restart backoff |
 
-Requires `capability process`. On Linux, `std.process` uses direct syscalls —
-the supervisor stays a static ELF.
+Requires `capability process`. Tests supervise real `/bin/sh` children and
+count their runs via marker files — no mocks.
 
 ## Dogfooding value
 
-- The `ChildSet`/`Child` resource design under continuous churn: spawn, wait, reap, restart
-- Task-to-task coordination with owned reads (stdout streams never copied twice)
-- Supervising real suite binaries (`hylla`, project servers) as its own test fixture
+- The `Child`/`ChildSet` resource design under spawn/wait/reap/restart churn
+- Byte-stream line framing with `[]u8` buffers and range decodes
+
+Run the tests: `dunder test` (5 suite tests + stdlib tests).

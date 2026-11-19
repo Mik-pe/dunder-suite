@@ -1,0 +1,105 @@
+import std.text as text
+import sys
+
+import fraga
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: fraga [--csv|--json] [--params a,b] [--readonly] DB SQL")
+    _ := sys.eprint("       fraga [--csv|--json] ... DB --file QUERY.sql")
+    _ := sys.eprint("  --params a,b  bind ? placeholders in order (no commas inside values)")
+    _ := sys.eprint("  --readonly    open the database read-only")
+    _ := sys.eprint("  --file PATH   read SQL from PATH instead of the SQL argument")
+    _ := sys.eprint("  --csv         comma-separated output with quoting")
+    _ := sys.eprint("  --json        JSON array of row objects (values as strings)")
+    _ := sys.eprint("single statement only; NULL renders as an empty cell")
+    return 2
+}
+
+fn main() -> i32 {
+    mut as_csv := false
+    mut as_json := false
+    mut read_only := false
+    mut params: []string = []
+    mut positional: []string = []
+    mut sql_file := ""
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--csv" { as_csv = true }
+        else if a == "--json" { as_json = true }
+        else if a == "--readonly" { read_only = true }
+        else if a == "--params" {
+            if i + 1 >= count { _ := sys.eprint("fraga: missing value after --params"); return 2 }
+            i += 1
+            for value in text.split(sys.arg(i), ",") {
+                trimmed := text.trim(value)
+                if trimmed.len > 0 { params.push(trimmed.clone()) }
+            }
+        } else if a == "--file" {
+            if i + 1 >= count { _ := sys.eprint("fraga: missing value after --file"); return 2 }
+            i += 1
+            sql_file = sys.arg(i)
+        } else if text.starts_with(a, "--") && a.len > 2 {
+            _ := sys.eprint("fraga: unknown flag " + a)
+            return 2
+        } else {
+            positional.push(a.clone())
+        }
+        i += 1
+    }
+    if positional.len != 2 { return usage() }
+
+    database := positional[0].clone()
+    mut sql := positional[1].clone()
+    if sql_file.len > 0 {
+        content := sys.read_text(sql_file)
+        if !content.ok {
+            _ := sys.eprint("fraga: cannot read " + sql_file + ": " + sys.error_message(content.error))
+            return 1
+        }
+        sql = text.trim(content.value)
+    }
+
+    query := fraga.Query {
+        database: database,
+        sql: sql,
+        params: params,
+        read_only: read_only,
+    }
+
+    if fraga.looks_like_read(query.sql) {
+        mut outcome := fraga.Outcome { rows: fraga.Rows { columns: [], rows: [] } }
+        mut failure := ""
+        match fraga.run_any(&query) {
+            .Ok(found) => { outcome = found },
+            .Err(e) => { failure = e },
+        }
+        if failure.len > 0 {
+            _ := sys.eprint("fraga: " + failure)
+            return 1
+        }
+        rows := outcome.rows
+        if as_csv {
+            print(fraga.render_csv(&rows))
+        } else if as_json {
+            print(fraga.render_json(&rows))
+        } else {
+            print(fraga.render_table(&rows))
+        }
+        return 0
+    }
+
+    mut changes := 0
+    mut write_failure := ""
+    match fraga.execute(&query) {
+        .Ok(count) => { changes = i32(count) },
+        .Err(e) => { write_failure = e },
+    }
+    if write_failure.len > 0 {
+        _ := sys.eprint("fraga: " + write_failure)
+        return 1
+    }
+    print(f"({changes} changes)")
+    return 0
+}

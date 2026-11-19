@@ -1,0 +1,134 @@
+capability filesystem
+
+import std.fs as fs
+import std.text as text
+import sys
+
+import ..src.valv as valv
+
+@test fn create_and_reopen_roundtrip() {
+    dir := fs.temp_dir("valv-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/a.valv"
+
+    match valv.create(path.clone(), "correct horse") {
+        .Ok(store) => {
+            mut s := store
+            s.set("api-key", "api-secret-42")
+            s.set("deploy-token", "tok")
+            match valv.save(&s) {
+                .Ok => {},
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+
+    match valv.open(path, "correct horse") {
+        .Ok(store) => {
+            assert(store.len() == 2)
+            match store.get("api-key") {
+                .Ok(secret) => { assert(secret == "api-secret-42") },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+            keys := store.keys()
+            assert(keys.len == 2)
+            assert(keys[0] == "api-key")
+            assert(keys[1] == "deploy-token")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn wrong_passphrase_is_rejected() {
+    dir := fs.temp_dir("valv-suite-wrong-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/b.valv"
+    match valv.create(path.clone(), "right") {
+        .Ok(store) => {
+            mut s := store
+            s.set("k", "v")
+            match valv.save(&s) { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    assert(valv.open(path, "wrong").is_err())
+}
+
+@test fn tampered_ciphertext_fails_authentication() {
+    dir := fs.temp_dir("valv-suite-tamper-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/c.valv"
+    match valv.create(path.clone(), "pass") {
+        .Ok(store) => {
+            mut s := store
+            s.set("k", "v")
+            match valv.save(&s) { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+
+    content := sys.read_text(path)
+    assert(content.ok)
+    mut lines := text.split(content.value, "\n")
+    assert(lines.len == 6)
+    assert(lines[0] == "VALV1")
+    assert(text.starts_with(lines[1], "$argon2id$"))
+    flipped := if text.starts_with(lines[3], "0") { "1" } else { "0" }
+    lines[3] = flipped + lines[3][1..lines[3].len]
+    mut rebuilt := ""
+    for line in lines { rebuilt = rebuilt + line + "\n" }
+    tampered_path := root + "/tampered.valv"
+    assert(sys.write_text(tampered_path, rebuilt).ok)
+    assert(valv.open(tampered_path, "pass").is_err())
+}
+
+@test fn remove_deletes_only_the_named_secret() {
+    dir := fs.temp_dir("valv-suite-rm-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/d.valv"
+    match valv.create(path.clone(), "pass") {
+        .Ok(store) => {
+            mut s := store
+            s.set("keep", "1")
+            s.set("drop", "2")
+            assert(s.remove("drop"))
+            assert(!s.remove("missing"))
+            assert(s.len() == 1)
+            match valv.save(&s) { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match valv.open(path, "pass") {
+        .Ok(store) => {
+            assert(store.len() == 1)
+            assert(store.get("keep").is_ok())
+            assert(store.get("drop").is_err())
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn empty_vault_seals_and_reopens() {
+    dir := fs.temp_dir("valv-suite-empty-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/e.valv"
+    match valv.create(path.clone(), "pass") {
+        .Ok(store) => { assert(store.len() == 0); assert(store.keys().len == 0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match valv.open(path, "pass") {
+        .Ok(store) => { assert(store.len() == 0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

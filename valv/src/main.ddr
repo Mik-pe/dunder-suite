@@ -1,0 +1,183 @@
+import std.bytes as bytes
+import std.crypto as crypto
+import std.parse as parse
+import std.text as text
+import sys
+
+import valv
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: valv init   [--file PATH]        read passphrase + confirm from stdin")
+    _ := sys.eprint("       valv set KEY [--file PATH]       passphrase line, then secret line")
+    _ := sys.eprint("       valv get KEY [--file PATH]       passphrase line; prints the secret")
+    _ := sys.eprint("       valv list  [--file PATH]         passphrase line; prints keys")
+    _ := sys.eprint("       valv rm KEY  [--file PATH]")
+    _ := sys.eprint("       valv gen KEY [--bytes N]          random hex token, stored and printed")
+    _ := sys.eprint("       valv rotate [--file PATH]         old passphrase, then new + confirm")
+    _ := sys.eprint("default vault file: ./.valv")
+    return 2
+}
+
+fn read_lines() -> []string {
+    content := sys.read_text("/dev/stdin")
+    if !content.ok { return [] }
+    text.split(content.value, "\n")
+}
+
+fn line_at(lines: &[]string, index: i32) -> string {
+    if index < lines.len { return lines[index].clone() }
+    ""
+}
+
+fn open_with(lines: &[]string, path: string) -> Result<valv.Store, string> {
+    valv.open(path, line_at(lines, 0))
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    command := sys.arg(1)
+    mut path := ".valv"
+    mut key := ""
+    mut token_bytes := 16
+    mut i := 2
+    while i < count {
+        a := sys.arg(i)
+        if a == "--file" {
+            if i + 1 >= count { _ := sys.eprint("valv: missing value after --file"); return 2 }
+            i += 1
+            path = sys.arg(i)
+        } else if a == "--bytes" {
+            if i + 1 >= count { _ := sys.eprint("valv: missing value after --bytes"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 8 || n.value > 64 {
+                _ := sys.eprint("valv: --bytes must be 8..64")
+                return 2
+            }
+            token_bytes = i32(n.value)
+        } else if key.len == 0 {
+            key = a.clone()
+        } else {
+            return usage()
+        }
+        i += 1
+    }
+
+    if command == "init" {
+        lines := read_lines()
+        if line_at(&lines, 0).len == 0 || line_at(&lines, 1).len == 0 {
+            _ := sys.eprint("valv: expected passphrase and confirmation on stdin")
+            return 2
+        }
+        if line_at(&lines, 0) != line_at(&lines, 1) {
+            _ := sys.eprint("valv: passphrases do not match")
+            return 2
+        }
+        match valv.create(path.clone(), line_at(&lines, 0)) {
+            .Ok(created) => { assert(created.len() == 0); print("created " + path) },
+            .Err(e) => { _ := sys.eprint("valv: " + e); return 1 },
+        }
+        return 0
+    }
+
+    if command == "set" {
+        if key.len == 0 { return usage() }
+        lines := read_lines()
+        if line_at(&lines, 0).len == 0 || line_at(&lines, 1).len == 0 {
+            _ := sys.eprint("valv: expected passphrase and secret on stdin")
+            return 2
+        }
+        mut failure := ""
+        match open_with(&lines, path) {
+            .Ok(store) => {
+                mut s := store
+                s.set(key.clone(), line_at(&lines, 1))
+                match valv.save(&s) { .Ok => {}, .Err(e) => { failure = e } }
+            },
+            .Err(e) => { failure = e },
+        }
+        if failure.len > 0 { _ := sys.eprint("valv: " + failure); return 1 }
+        return 0
+    }
+
+    if command == "get" || command == "rm" || command == "list" {
+        if command != "list" && key.len == 0 { return usage() }
+        lines := read_lines()
+        match open_with(&lines, path) {
+            .Ok(store) => {
+                mut s := store
+                if command == "list" {
+                    for name in s.keys() { print(name) }
+                    return 0
+                }
+                if command == "get" {
+                    match s.get(key) {
+                        .Ok(secret) => { print(secret); return 0 },
+                        .Err(e) => { _ := sys.eprint("valv: " + e); return 1 },
+                    }
+                }
+                if !s.remove(key) {
+                    _ := sys.eprint("valv: no secret named " + key)
+                    return 1
+                }
+                match valv.save(&s) { .Ok => { return 0 }, .Err(e) => { _ := sys.eprint("valv: " + e); return 1 } }
+            },
+            .Err(e) => { _ := sys.eprint("valv: " + e); return 1 },
+        }
+        return 1
+    }
+
+    if command == "gen" {
+        if key.len == 0 { return usage() }
+        lines := read_lines()
+        mut token := ""
+        match open_with(&lines, path) {
+            .Ok(store) => {
+                mut s := store
+                random := crypto.random(token_bytes)
+                if !random.ok {
+                    _ := sys.eprint("valv: random generation failed")
+                    return 1
+                }
+                token = bytes.hex_u8(&random.value)
+                s.set(key.clone(), token.clone())
+                match valv.save(&s) { .Ok => {}, .Err(e) => { _ := sys.eprint("valv: " + e); return 1 } }
+            },
+            .Err(e) => { _ := sys.eprint("valv: " + e); return 1 },
+        }
+        print(token)
+        return 0
+    }
+
+    if command == "rotate" {
+        lines := read_lines()
+        if line_at(&lines, 1).len == 0 || line_at(&lines, 1) != line_at(&lines, 2) {
+            _ := sys.eprint("valv: expected old passphrase, then new passphrase and confirmation")
+            return 2
+        }
+        mut failure := ""
+        match open_with(&lines, path) {
+            .Ok(store) => {
+                match valv.create(path.clone(), line_at(&lines, 1)) {
+                    .Ok(fresh) => {
+                        mut renewed := fresh
+                        for name in store.keys() {
+                            match store.get(name) {
+                                .Ok(secret) => { renewed.set(name.clone(), secret.clone()) },
+                                .Err(e) => { assert(e.len >= 0) },
+                            }
+                        }
+                        match valv.save(&renewed) { .Ok => {}, .Err(e) => { failure = e } }
+                    },
+                    .Err(e) => { failure = e },
+                }
+            },
+            .Err(e) => { failure = e },
+        }
+        if failure.len > 0 { _ := sys.eprint("valv: " + failure); return 1 }
+        return 0
+    }
+
+    usage()
+}

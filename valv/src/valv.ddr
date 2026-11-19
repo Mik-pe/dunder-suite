@@ -1,0 +1,166 @@
+capability filesystem
+
+import std.array as array
+import std.bytes as bytes
+import std.crypto as crypto
+import std.json as json
+import std.map as map
+import std.text as text
+import sys
+
+pub opaque struct Store {
+    path: string,
+    phc: string,
+    key: []u8,
+    entries: map.Map<string, string>,
+}
+
+fn app_salt() -> []u8 {
+    mut salt: []u8 = []
+    bytes.append_utf8(&mut salt, "valv-v1-aes256gcm")
+    salt
+}
+
+fn derive_key(phc: string) -> Result<[]u8, string> {
+    mut material: []u8 = []
+    bytes.append_utf8(&mut material, phc)
+    mut info: []u8 = []
+    bytes.append_utf8(&mut info, "valv-key")
+    salt := app_salt()
+    derived := crypto.hkdf_sha256(&material, &salt, &info, 32)
+    if !derived.ok { return .Err("hkdf failed: " + derived.error) }
+    .Ok(derived.value)
+}
+
+fn payload_bytes(store: &Store) -> []u8 {
+    mut w := json.Writer::new()
+    w.object()
+    mut names := store.entries.keys()
+    array.sort<string>(&mut names)
+    for name in names {
+        w.key(name)
+        w.string(store.entries.at(name))
+    }
+    w.end()
+    done := w.finish()
+    mut out: []u8 = []
+    if done.ok { bytes.append_utf8(&mut out, done.value) }
+    out
+}
+
+pub fn create(move path: string, passphrase: string) -> Result<Store, string> {
+    hashed := crypto.argon2id_hash(passphrase)
+    if !hashed.ok { return .Err("argon2id failed: " + hashed.error) }
+    phc := hashed.value
+    match derive_key(phc.clone()) {
+        .Ok(key) => {
+            mut store := Store {
+                path: path,
+                phc: phc,
+                key: key,
+                entries: map.Map<string, string>::new(),
+            }
+            match save_store(&store) {
+                .Ok => { .Ok(store) },
+                .Err(e) => { .Err(e) },
+            }
+        },
+        .Err(e) => { .Err(e) },
+    }
+}
+
+fn save_store(store: &Store) -> Result<(), string> {
+    nonce_result := crypto.random(12)
+    if !nonce_result.ok { return .Err("random failed: " + nonce_result.error) }
+    nonce := nonce_result.value
+    plaintext := payload_bytes(store)
+    mut aad: []u8 = []
+    bytes.append_utf8(&mut aad, "VALV1")
+    sealed := crypto.aes256_gcm_seal(&store.key, &nonce, &aad, &plaintext)
+    if !sealed.ok { return .Err("seal failed: " + sealed.error) }
+
+    mut out := "VALV1\n"
+    out = out + store.phc + "\n"
+    out = out + bytes.hex_u8(&nonce) + "\n"
+    out = out + bytes.hex_u8(&sealed.ciphertext) + "\n"
+    out = out + bytes.hex_u8(&sealed.tag) + "\n"
+    written := sys.write_text(store.path, out)
+    if !written.ok { return .Err("cannot write " + store.path + ": " + sys.error_message(written.error)) }
+    .Ok
+}
+
+pub fn save(store: &Store) -> Result<(), string> {
+    save_store(store)
+}
+
+fn child_key_text(doc: &json.Doc, child: i32) -> string {
+    start := doc.key_starts[child]
+    end := doc.key_ends[child]
+    bytes.decode_range(&doc.input, start, end).value
+}
+
+pub fn open(path: string, passphrase: string) -> Result<Store, string> {
+    content := sys.read_text(path)
+    if !content.ok { return .Err("cannot read " + path + ": " + sys.error_message(content.error)) }
+    parts := text.split(content.value, "\n")
+    if parts.len != 6 || parts[0] != "VALV1" || parts[5] != "" {
+        return .Err("not a valv vault: " + path)
+    }
+    phc := parts[1].clone()
+    if !crypto.argon2id_verify(passphrase, phc) {
+        return .Err("wrong passphrase")
+    }
+    nonce := crypto.decode_hex(parts[2])
+    ciphertext := crypto.decode_hex(parts[3])
+    tag := crypto.decode_hex(parts[4])
+    if !nonce.ok || nonce.value.len != 12 { return .Err("bad nonce in vault") }
+    if !ciphertext.ok { return .Err("bad ciphertext in vault") }
+    if !tag.ok || tag.value.len != 16 { return .Err("bad tag in vault") }
+    match derive_key(phc.clone()) {
+        .Ok(key) => {
+            mut aad: []u8 = []
+            bytes.append_utf8(&mut aad, "VALV1")
+            opened := crypto.aes256_gcm_open(&key, &nonce.value, &aad, &ciphertext.value, &tag.value)
+            if !opened.ok { return .Err("vault failed authentication: " + opened.error) }
+            decoded := bytes.decode(&opened.value)
+            if !decoded.ok { return .Err("vault payload is not valid UTF-8") }
+            doc := json.Doc::parse_text(decoded.value)
+            if !doc.ok || doc.kind(doc.root) != .Object { return .Err("vault payload is not a JSON object") }
+            mut entries := map.Map<string, string>::new()
+            mut cur := doc.first_child[doc.root]
+            while cur >= 0 {
+                name := child_key_text(&doc, cur)
+                value := doc.as_str(cur)
+                if value.ok { entries.put(move name, value.value.clone()) }
+                cur = doc.next_sibling[cur]
+            }
+            .Ok(Store { path: path.clone(), phc: phc.clone(), key: key, entries: entries })
+        },
+        .Err(e) => { .Err(e) },
+    }
+}
+
+impl Store {
+    pub fn get(&self, key: string) -> Result<string, string> {
+        if self.entries.contains(key) { return .Ok(self.entries.at(key).clone()) }
+        .Err("no secret named " + key)
+    }
+
+    pub fn set(&mut self, move key: string, move value: string) {
+        self.entries.put(move key, move value)
+    }
+
+    pub fn remove(&mut self, key: string) -> bool {
+        self.entries.remove(key)
+    }
+
+    pub fn keys(&self) -> []string {
+        mut names := self.entries.keys()
+        array.sort<string>(&mut names)
+        names
+    }
+
+    pub fn len(&self) -> i32 {
+        self.entries.len()
+    }
+}

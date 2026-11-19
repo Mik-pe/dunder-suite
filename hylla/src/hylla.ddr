@@ -1,0 +1,199 @@
+capability network, filesystem
+
+import std.fs as fs
+import std.net as net
+import std.sys as sys
+import std.text as text
+
+import http
+
+pub struct Config {
+    root: string,
+    port: i32,
+    upload_dir: string,
+    timeout_ms: i64,
+    max_body: i32,
+}
+
+pub fn default_config() -> Config {
+    Config { root: ".", port: 8080, upload_dir: "", timeout_ms: 10000, max_body: 1048576 }
+}
+
+pub enum Action {
+    File(string),
+    Listing(string),
+    Upload(string),
+    NotFound,
+    NotAllowed,
+}
+
+fn target_path(target: string) -> string {
+    mut end := target.len
+    at := text.find(target, "?")
+    if at >= 0 { end = at }
+    target[0..end]
+}
+
+fn contains_dotdot(path: string) -> bool {
+    parts := text.split(path, "/")
+    for part in parts {
+        if part == ".." { return true }
+    }
+    false
+}
+
+pub fn route(root: string, upload_dir: string, method: string, target: string) -> Action {
+    clean := target_path(target)
+    if clean.len == 0 || clean[0] != 47 || contains_dotdot(clean) {
+        return .NotFound
+    }
+    if method == "GET" || method == "HEAD" {
+        path := root + clean
+        info := sys.metadata(path)
+        if info.ok {
+            kind := sys.file_kind(info)
+            if kind == .Directory {
+                index := path + "index.html"
+                if sys.metadata(index).ok { return .File(index) }
+                return .Listing(path)
+            }
+            if kind == .File { return .File(path) }
+        }
+        return .NotFound
+    }
+    if (method == "PUT" || method == "POST") && upload_dir.len > 0 {
+        clean2 := target_path(target)
+        mut last := -1
+        for i in 0..clean2.len {
+            if clean2[i] == 47 { last = i }
+        }
+        fresh := clean2.clone()
+        mut name := fresh.clone()
+        if last >= 0 { name = fresh[last + 1..fresh.len] }
+        if name.len == 0 || contains_dotdot(name) { return .NotFound }
+        return .Upload(upload_dir + "/" + name)
+    }
+    .NotAllowed
+}
+
+pub fn content_type(path: string) -> string {
+    dot := text.find(path, ".")
+    if dot < 0 { return "application/octet-stream" }
+    ext := path[dot + 1..path.len]
+    if ext == "html" || ext == "htm" { return "text/html; charset=utf-8" }
+    if ext == "css" { return "text/css; charset=utf-8" }
+    if ext == "js" { return "text/javascript; charset=utf-8" }
+    if ext == "json" { return "application/json; charset=utf-8" }
+    if ext == "txt" || ext == "md" || ext == "toml" || ext == "ddr" { return "text/plain; charset=utf-8" }
+    if ext == "png" { return "image/png" }
+    if ext == "jpg" || ext == "jpeg" { return "image/jpeg" }
+    if ext == "gif" { return "image/gif" }
+    if ext == "svg" { return "image/svg+xml" }
+    if ext == "pdf" { return "application/pdf" }
+    "application/octet-stream"
+}
+
+fn escape_html(name: string) -> string {
+    mut out := ""
+    for r in name.runes() {
+        if r == `<` { out = out + "&lt;" }
+        else if r == `>` { out = out + "&gt;" }
+        else if r == `&` { out = out + "&amp;" }
+        else if r == `"` { out = out + "&quot;" }
+        else { out = out + r.str() }
+    }
+    out
+}
+
+fn append_text(out: &mut []u8, literal: string) {
+    for b in literal.bytes() { out.push(u8(b)) }
+}
+
+fn listing_body(dir: string, root: string) -> []u8 {
+    mut body: []u8 = []
+    append_text(&mut body, "<!doctype html><html><head><title>hylla</title></head><body><ul>\n")
+    listed := fs.list_dir(dir)
+    if listed.ok {
+        for name in listed.entries {
+            info := sys.metadata(dir + "/" + name)
+            slash := if sys.file_kind(info) == .Directory { "/" } else { "" }
+            append_text(&mut body, "<li><a href=\"./")
+            append_text(&mut body, escape_html(name))
+            append_text(&mut body, slash + "\">")
+            append_text(&mut body, escape_html(name))
+            append_text(&mut body, "</a></li>\n")
+        }
+    }
+    append_text(&mut body, "</ul></body></html>\n")
+    body
+}
+
+fn text_body(s: string) -> []u8 {
+    mut out: []u8 = []
+    for b in s.bytes() { out.push(u8(b)) }
+    out
+}
+
+pub fn handle(stream: &net.TcpStream, cfg: &Config) {
+    request := http.read_request(stream, cfg.max_body, cfg.timeout_ms)
+    if !request.ok {
+        _ := http.write_response(stream, 400, "text/plain; charset=utf-8", &[], &[], &text_body("bad request\n"), false)
+        return
+    }
+    head := request.method == "HEAD"
+    action := route(cfg.root, cfg.upload_dir, request.method, request.target)
+    match action {
+        .File(path) => {
+            read := sys.read_u8(path)
+            if !read.ok {
+                _ := http.write_response(stream, 404, "text/plain; charset=utf-8", &[], &[], &text_body("not found\n"), head)
+                return
+            }
+            _ := http.write_response(stream, 200, content_type(path), &[], &[], &read.value, head)
+        },
+        .Listing(dir) => {
+            body := listing_body(dir, cfg.root)
+            _ := http.write_response(stream, 200, "text/html; charset=utf-8", &[], &[], &body, head)
+        },
+        .Upload(dest) => {
+            written := sys.write_u8(dest, &request.body)
+            if !written.ok {
+                _ := http.write_response(stream, 500, "text/plain; charset=utf-8", &[], &[], &text_body("write failed\n"), head)
+                return
+            }
+            _ := http.write_response(stream, 201, "text/plain; charset=utf-8", &[], &[], &text_body("stored\n"), head)
+        },
+        .NotFound => {
+            _ := http.write_response(stream, 404, "text/plain; charset=utf-8", &[], &[], &text_body("not found\n"), head)
+        },
+        .NotAllowed => {
+            _ := http.write_response(stream, 405, "text/plain; charset=utf-8", &[], &[], &text_body("method not allowed\n"), head)
+        },
+    }
+}
+
+pub fn serve(cfg: &Config) -> i32 {
+    endpoint := net.SocketAddr { ip: .V4(0, 0, 0, 0), port: u16(cfg.port), scope_id: 0 }
+    listen := net.TcpListener::listen_addr(endpoint, 16)
+    if !listen.ok {
+        _ := sys.eprint("hylla: cannot listen on port " + cfg.port.str() + ": " + sys.error_message(listen.error))
+        return 1
+    }
+    mut listener := listen.listener
+    bound := net.local_port(&listener)
+    _ := sys.eprint("hylla: serving " + cfg.root + " on 0.0.0.0:" + bound.str())
+    while true {
+        accepted := listener.accept()
+        if !accepted.ok {
+            if accepted.would_block {
+                sys.sleep_ms(10)
+                continue
+            }
+            continue
+        }
+        mut stream := accepted.stream
+        handle(&stream, cfg)
+        _ := stream.close()
+    }
+    return 0
+}

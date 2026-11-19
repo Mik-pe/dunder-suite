@@ -1,0 +1,6 @@
+name = "salva"
+root = "src/main.ddr"
+test_root = "tests/suite.ddr"
+
+[dependencies]
+http_client = { path = "../vendor/http_client" }

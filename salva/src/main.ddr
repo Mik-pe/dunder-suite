@@ -1,0 +1,94 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import salva
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: salva [-n COUNT | -t SECONDS] [flags] URL")
+    _ := sys.eprint("  -n COUNT       issue COUNT requests (default 10)")
+    _ := sys.eprint("  -t SECONDS     issue requests until SECONDS have elapsed")
+    _ := sys.eprint("  -m METHOD      HTTP method (default GET)")
+    _ := sys.eprint("  -H NAME=VALUE  request header (repeatable)")
+    _ := sys.eprint("  -b BODY        request body text")
+    _ := sys.eprint("  --timeout-ms N per-request deadline (default 5000)")
+    _ := sys.eprint("  --json         print a JSON report instead of text")
+    _ := sys.eprint("requests are sequential in v0.1; concurrency lands with")
+    _ := sys.eprint("ambient-I/O-capable task workers")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    url := sys.arg(count - 1)
+    if text.starts_with(url, "-") { return usage() }
+
+    mut cfg := salva.default_config(url.clone())
+    cfg.total = 0
+    mut as_json := false
+    mut i := 1
+    while i < count - 1 {
+        a := sys.arg(i)
+        if a == "-n" {
+            if i + 1 >= count - 1 { _ := sys.eprint("salva: missing value after -n"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 || n.value > 1000000 { _ := sys.eprint("salva: -n must be 1..1000000"); return 2 }
+            cfg.total = i32(n.value)
+        } else if a == "-t" {
+            if i + 1 >= count - 1 { _ := sys.eprint("salva: missing value after -t"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 || n.value > 600 { _ := sys.eprint("salva: -t must be 1..600 seconds"); return 2 }
+            cfg.duration_ms = n.value * 1000
+        } else if a == "-m" {
+            if i + 1 >= count - 1 { _ := sys.eprint("salva: missing value after -m"); return 2 }
+            i += 1
+            cfg.method = sys.arg(i)
+        } else if a == "-H" {
+            if i + 1 >= count - 1 { _ := sys.eprint("salva: missing value after -H"); return 2 }
+            i += 1
+            pair := sys.arg(i)
+            at := text.find(pair, "=")
+            if at <= 0 { _ := sys.eprint("salva: -H expects NAME=VALUE"); return 2 }
+            cfg.header_names.push(pair[0..at])
+            cfg.header_values.push(pair[at + 1..pair.len])
+        } else if a == "-b" {
+            if i + 1 >= count - 1 { _ := sys.eprint("salva: missing value after -b"); return 2 }
+            i += 1
+            body := sys.arg(i)
+            mut raw: []u8 = []
+            for b in body.bytes() { raw.push(u8(b)) }
+            cfg.body = raw
+        } else if a == "--timeout-ms" {
+            if i + 1 >= count - 1 { _ := sys.eprint("salva: missing value after --timeout-ms"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 100 || n.value > 60000 { _ := sys.eprint("salva: --timeout-ms must be 100..60000"); return 2 }
+            cfg.timeout_ms = n.value
+        } else if a == "--json" {
+            as_json = true
+        } else {
+            _ := sys.eprint("salva: unknown flag " + a)
+            return 2
+        }
+        i += 1
+    }
+
+    mut failure := ""
+    match salva.run(&cfg) {
+        .Ok(pair) => {
+            report := salva.summarize(&pair.0, pair.1)
+            if as_json {
+                print(salva.render_json(&report))
+            } else {
+                print(salva.render_text(&report))
+            }
+            return 0
+        },
+        .Err(e) => { failure = e },
+    }
+    _ := sys.eprint("salva: " + failure)
+    return 1
+}

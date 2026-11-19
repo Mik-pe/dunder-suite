@@ -1,0 +1,192 @@
+capability process, filesystem
+
+import std.process as process
+import std.sys as sys
+import std.text as text
+
+pub struct Entry {
+    name: string,
+    program: string,
+    args: []string,
+}
+
+fn split_words(input: string) -> []string {
+    mut words: []string = []
+    mut start := -1
+    end := input.len + 1
+    for i in 0..end {
+        at_end := i == input.len
+        sep := !at_end && (input[i] == 32 || input[i] == 9)
+        if !at_end && !sep {
+            if start < 0 { start = i }
+            continue
+        }
+        if start >= 0 {
+            words.push(input[start..i])
+            start = -1
+        }
+    }
+    words
+}
+
+pub fn parse_basfile(content: string) -> Result<[]Entry, string> {
+    lines := text.split(content, "\n")
+    mut entries: []Entry = []
+    mut number := 0
+    for line in lines {
+        number += 1
+        trimmed := text.trim(line)
+        if trimmed.len == 0 { continue }
+        if text.starts_with(trimmed, "#") { continue }
+        at := text.find(trimmed, ":")
+        if at <= 0 { return .Err(f"line {number}: expected 'name: command'") }
+        name := text.trim(trimmed[0..at])
+        rest := trimmed[at + 1..trimmed.len]
+        rest_trimmed := text.trim(rest)
+        if name.len == 0 || rest_trimmed.len == 0 {
+            return .Err(f"line {number}: empty name or command")
+        }
+        words := split_words(rest_trimmed)
+        if words.len == 0 { return .Err(f"line {number}: empty command") }
+        program := words[0].clone()
+        mut args: []string = []
+        for w in 1..words.len { args.push(words[w].clone()) }
+        entries.push(Entry { name: name.clone(), program: program, args: args })
+    }
+    if entries.len == 0 { return .Err("no entries in basfile") }
+    .Ok(entries)
+}
+
+pub fn load(path: string) -> Result<[]Entry, string> {
+    content := sys.read_text(path)
+    if !content.ok {
+        return .Err("cannot read " + path + ": " + sys.error_message(content.error))
+    }
+    parse_basfile(content.value)
+}
+
+fn exit_code_of(output: process.Output) -> i32 {
+    if output.signal > 0 { return 128 + output.signal }
+    if output.code >= 0 { return output.code }
+    1
+}
+
+pub fn run_single(entry: &Entry) -> i32 {
+    mut cmd := process.Command::new(entry.program.clone(), entry.args.clone())
+    cmd.inherit_stdio()
+    output := cmd.exec()
+    exit_code_of(output)
+}
+
+fn spawn_into(children: &mut process.ChildSet, entry: &Entry, slot_names: &mut []string, slot_runs: &mut []i32, runs: i32) -> string {
+    mut cmd := process.Command::new(entry.program.clone(), entry.args.clone())
+    cmd.set_stdio(.Null, .Pipe, .Pipe)
+    spawned := cmd.spawn()
+    if !spawned.ok {
+        return "cannot start '" + entry.name + "': " + sys.error_message(spawned.error)
+    }
+    mut child := spawned.child
+    match children.try_insert(move child) {
+        .Ok(slot) => {
+            slot_names[slot] = entry.name.clone()
+            slot_runs[slot] = runs
+            ""
+        },
+        .Err(_) => { "child set is full" },
+    }
+}
+
+fn print_lines(buffer: &mut []u8, prefix: string) {
+    mut consume_from := 0
+    mut scan := 0
+    while scan < buffer.len {
+        if buffer[scan] == 10 {
+            decoded := sys.decode_u8_range(buffer, i64(consume_from), i64(scan - consume_from))
+            if decoded.ok {
+                print("[" + prefix + "] " + decoded.value)
+            }
+            consume_from = scan + 1
+        }
+        scan += 1
+    }
+    if consume_from > 0 {
+        mut rest: []u8 = []
+        for i in consume_from..buffer.len { rest.push(buffer[i]) }
+        buffer.clear()
+        for b in rest { buffer.push(b) }
+    }
+}
+
+fn flush_partial(buffer: &mut []u8, prefix: string) {
+    if buffer.len == 0 { return }
+    decoded := sys.decode_u8(buffer)
+    if decoded.ok {
+        print("[" + prefix + "] " + decoded.value)
+    }
+    buffer.clear()
+}
+
+pub fn supervise(entries: &[]Entry, restarts: i32) -> i32 {
+    capacity := entries.len + 1
+    mut children := process.ChildSet::new(capacity)
+    mut slot_names: []string = []
+    mut slot_runs: []i32 = []
+    mut buffers: [][]u8 = []
+    for _ in 0..capacity {
+        slot_names.push("")
+        slot_runs.push(0)
+        buffers.push([])
+    }
+
+    mut worst := 0
+    for entry in entries {
+        err := spawn_into(&mut children, entry, &mut slot_names, &mut slot_runs, 1)
+        if err.len > 0 {
+            _ := sys.eprint("bas: " + err)
+            return 2
+        }
+    }
+
+    while children.len() > 0 {
+        _ := children.wait_any(200)
+        mut slot := 0
+        while slot < capacity {
+            if !children.is_active(slot) {
+                slot += 1
+                continue
+            }
+            mut out: []u8 = []
+            mut err_out: []u8 = []
+            waited := children.try_wait(slot, &mut out, &mut err_out)
+            for b in out { buffers[slot].push(b) }
+            for b in err_out { buffers[slot].push(b) }
+            name := slot_names[slot].clone()
+            print_lines(&mut buffers[slot], name)
+            if waited.exited {
+                flush_partial(&mut buffers[slot], name)
+                code := waited.code
+                if code > worst { worst = code }
+                print(f"[bas] {name} exited {code}")
+                runs := slot_runs[slot]
+                slot_names[slot] = ""
+                mut entry_index := -1
+                mut k := 0
+                for entry in entries {
+                    if entry.name == name { entry_index = k }
+                    k += 1
+                }
+                if entry_index >= 0 && waited.ok && runs <= restarts && code != 0 {
+                    sys.sleep_ms(300)
+                    restart_err := spawn_into(&mut children, &entries[entry_index], &mut slot_names, &mut slot_runs, runs + 1)
+                    if restart_err.len == 0 {
+                        print(f"[bas] {name} restarting (attempt {runs + 1})")
+                    } else {
+                        _ := sys.eprint("bas: " + restart_err)
+                    }
+                }
+            }
+            slot += 1
+        }
+    }
+    worst
+}

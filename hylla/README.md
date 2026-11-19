@@ -1,6 +1,6 @@
 # hylla — static file server
 
-**CLI:** `hylla` · **Library:** `import hylla` · **Status:** planned · **Target:** Dunder 0.5.0
+**CLI:** `hylla` · **Library:** `import hylla` · **Status:** v0.1.0 — implemented, tests passing · **Target:** Dunder 0.5.0
 
 *Hylla* is Swedish for "shelf" — it serves files straight off the shelf.
 A small, deliberate HTTP file server on the `http` package and `std.net`.
@@ -10,65 +10,56 @@ A small, deliberate HTTP file server on the `http` package and `std.net`.
 Share a directory over HTTP without configuration:
 
 - Serve any local directory with correct Content-Type by extension
-- Directory index listing with sizes, clickable relative links
-- Bounded request bodies for optional uploads (`--upload`, off by default)
-- Explicit limits everywhere: max body, header timeouts, path escaping
+- `index.html` for `/`; HTML directory listing (HTML-escaped) otherwise
+- Bounded uploads (`--upload`, off by default), stored under their basename
+- Explicit limits: dot-dot segments rejected, request timeout, body cap
 
-## CLI
-
-```sh
-hylla                          # serve ./ on :8080
-hylla --port 9000 --dir dist/  # serve a build directory
-hylla --upload /tmp/inbox      # also accept PUT/POST writes under /tmp/inbox
-```
-
-Then:
+## CLI (v0.1.0)
 
 ```sh
-curl -s http://localhost:8080/            # index listing
-curl -sO http://localhost:8080/logo.jpg   # download a file
-curl -T report.pdf http://localhost:8080/inbox/report.pdf   # with --upload
+hylla                            # serve ./ on :8080
+hylla --port 9000 --dir dist/    # serve a build directory
+hylla --port 0 --upload inbox/   # free port, accept PUT/POST under inbox/
 ```
+
+```text
+$ curl -s http://localhost:8080/notes.txt
+hello from hylla
+$ echo "upload test" | curl -s -T - http://localhost:8080/inbox.txt
+stored
+```
+
+Each request is handled on its own connection (Connection: close). HEAD gets
+correct bodiless responses. Traversal attempts (`/../`) return 404.
 
 ## Library
 
-```dunder
-import hylla
-
-fn main() -> i32 {
-    config := hylla.Config {
-        root: "dist",
-        addr: "0.0.0.0:8080",
-        upload_dir: "",        // empty disables uploads
-        timeout_ms: 10000,
-        max_body: 1048576,
-    }
-    hylla.serve(&config)       // blocking accept loop
-    return 0
-}
-```
-
-Planned API:
-
 | Item | Meaning |
 | --- | --- |
-| `Config` | Root directory, bind address, upload dir, timeouts, body limit |
-| `serve(&Config)` | Blocking loop: accept → `http.read_request` → route → respond |
-| `response_for(&Config, &Request) -> Response` | Pure router, unit-testable without sockets |
+| `Config` | Root, port, upload dir, timeout, body cap |
+| `route(root, upload, method, target)` | Pure router: `File`/`Listing`/`Upload`/`NotFound`/`NotAllowed` — unit-tested without sockets |
+| `handle(&stream, &Config)` | One request/response cycle; used by `serve` and by the loopback test |
+| `serve(&Config) -> i32` | Blocking accept loop |
+| `content_type(path)` | Extension → MIME mapping |
+
+The test suite drives a real request over loopback with a `TcpListener` and a
+client `TcpStream` in one thread — no fixtures, no network.
 
 ## Dunder capabilities used
 
 | Area | What |
 | --- | --- |
-| `http` package | `read_request`, `write_response`, streaming `BodyReader` for uploads |
-| `std.net` | `TcpListener::listen_addr`, `accept`, `local_addr`; sockets are `@resource(dispose)` |
-| `sys` / `std.fs` | `metadata` for sizes, path containment checks, upload writes |
-| `std.map` | Extension → Content-Type table |
+| `http` package (vendored) | `read_request`, `write_response` |
+| `std.net` | `TcpListener::listen_addr`, `accept`, `read_append`, `write_all`; `@resource` socket cleanup |
+| `sys` | `metadata`/`FileKind`, `read_u8`/`write_u8` for files and uploads |
 
-Requires `capability network` and `capability filesystem`.
+Requires `capability network` and `capability filesystem`. The `http` package
+is vendored under `vendor/http` (copied from Mik-pe/dunder at 0.5.0) so this
+repo builds self-contained.
 
 ## Dogfooding value
 
-- Long-running single-binary service: accept loop, socket lifetimes, `@resource` cleanup
-- The `http` parser under varied real clients (browsers, curl, pipelines)
-- Security-shaped code: path normalization and bounded bodies in a typed language
+- Long-running accept loop with per-connection resource lifetimes
+- The `http` parser under real clients (curl, salva, browsers)
+
+Run the tests: `dunder test` (5 suite tests + stdlib tests).

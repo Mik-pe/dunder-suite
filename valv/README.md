@@ -1,6 +1,6 @@
 # valv — encrypted secrets vault
 
-**CLI:** `valv` · **Library:** `import valv` · **Status:** planned · **Target:** Dunder 0.5.0
+**CLI:** `valv` · **Library:** `import valv` · **Status:** v0.1.0 — implemented, tests passing · **Target:** Dunder 0.5.0
 
 *Valv* is Swedish for "vault". A local, passphrase-encrypted store for
 credentials and tokens, built on `std.crypto`'s AES-256-GCM and Argon2id.
@@ -9,66 +9,62 @@ credentials and tokens, built on `std.crypto`'s AES-256-GCM and Argon2id.
 
 Keep machine secrets out of plaintext dotfiles:
 
-- One encrypted vault file (default `~/.valv/vault.valv`)
-- Passphrase → Argon2id key derivation; every save uses a fresh random nonce
-- Authenticated encryption: tampering fails closed, no plaintext on bad tags
-- Add-on generation mode for tokens (`valv gen`) using `crypto.random`
+- One vault file (default `./.valv`, `--file` to relocate)
+- Argon2id verifies the passphrase; AES-256-GCM encrypts the payload
+- Every save uses a fresh random nonce; tampering fails closed
+- `gen` stores random hex tokens for deployments
 
-## CLI
+## File format (v0.1.0)
 
-```sh
-valv init                                # create vault, set passphrase
-valv set api-key                         # prompted for the secret value
-valv set api-key < token.txt             # or read the secret from stdin
-valv get api-key                         # prints value (for scripts/CI)
-valv list                                # keys + updated timestamps, no values
-valv rm api-key                          # remove a key
-valv gen deploy-token --length 32        # random hex token, stored and printed
-valv rotate                              # new passphrase, re-encrypts in place
+```text
+VALV1
+$argon2id$v=19$m=19456,t=2,p=1$c2FsdA...    ← Argon2id PHC (passphrase verifier)
+<hex nonce, 12 bytes>
+<hex ciphertext of the JSON secrets>
+<hex tag, 16 bytes>
 ```
 
-Passphrase comes from `VALV_PASSPHRASE` when set, otherwise a stdin prompt —
-so CI jobs never need interactive input.
+Key derivation: the stored PHC string (which contains its own random salt)
+is the input key material for HKDF-SHA256 → AES-256 key. Re-derivation is
+deterministic because the PHC is stored; rotating the passphrase re-encrypts.
+
+## CLI (v0.1.0)
+
+Passphrases and secrets arrive on stdin so CI never needs a terminal:
+
+```sh
+printf 'pass\npass\n'   | valv init --file ~/.valv
+printf 'pass\nsecret\n' | valv set api-key --file ~/.valv
+printf 'pass\n'         | valv get api-key --file ~/.valv
+printf 'pass\n'         | valv list --file ~/.valv
+printf 'pass\n'         | valv rm api-key --file ~/.valv
+printf 'pass\n'         | valv gen deploy-token --bytes 16 --file ~/.valv
+printf 'old\nnew\nnew\n'| valv rotate --file ~/.valv
+```
 
 ## Library
 
-```dunder
-import valv
-
-fn main() -> i32 {
-    opened := valv.Store::open("~/.valv/vault.valv")
-    if !opened.ok { print(opened.error); return 1 }
-    mut store := opened.store
-    match store.get("api-key") {
-        .Ok(secret) => { _ := sys.write_stderr(f"use {secret}") },
-        .Err => { print("api-key not found") },
-    }
-    return 0
-}
-```
-
-Planned API:
-
 | Item | Meaning |
 | --- | --- |
-| `Store::open(path)` | OpenResult; verifies passphrase before decrypting the index |
-| `store.get(key)` | `Result<string, valv.Error>`; constant-time comparisons where lengths allow |
-| `store.set(move key, move value)` / `store.remove(key)` | Mutate + re-encrypt on `save()` |
-| `store.save()` | Fresh `crypto.random` nonce per write, atomic replace of the file |
+| `create(path, passphrase)` | New vault: Argon2id hash → HKDF key → sealed empty store |
+| `open(path, passphrase)` | Verifies the passphrase, opens AES-GCM, decodes JSON entries |
+| `store.get/set/remove/keys/len` | Owned, sorted access to secrets |
+| `save(&store)` | Re-seals with a fresh nonce and rewrites the file |
 
 ## Dunder capabilities used
 
 | Area | What |
 | --- | --- |
-| `std.crypto` | `argon2id_hash`/`verify` for the passphrase, `aes256_gcm_seal`/`open`, `random` for nonces and `gen`, `equal` for comparisons |
-| `std.json` | Encrypted payload is a JSON object of key → secret, so padding stays opaque but the format is inspectable when decrypted |
-| `sys` | `arg`, env lookup, `write_text`/`rename` for atomic saves |
+| `std.crypto` | `argon2id_hash`/`verify`, `hkdf_sha256`, `aes256_gcm_seal`/`open`, `random` |
+| `std.json` / `std.map` | Payload encoding and entry storage |
+| `std.bytes` | Hex encoding (`hex_u8`) and decoding (`crypto.decode_hex`) |
 
 Requires `capability filesystem`. macOS needs Homebrew `openssl@3` + `argon2`;
 Linux uses `libcrypto.so.3` + `libargon2.so.1` (as documented by `std.crypto`).
 
 ## Dogfooding value
 
-- Correctness-critical FFI usage: nonces never reused, errors never leak plaintext
-- Byte-buffer handling (`[]u8` seal/open results) and secret lifecycle (zero reliance on string sharing)
-- A real consumer of Argon2id + AES-GCM beyond compiler test fixtures
+- Correctness-critical FFI: nonces never reused, failures never leak plaintext
+- The test suite proves wrong-passphrase and tampered-ciphertext rejection
+
+Run the tests: `dunder test` (5 suite tests + stdlib tests).

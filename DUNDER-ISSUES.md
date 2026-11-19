@@ -147,6 +147,62 @@ _New entries are appended while the remaining tools are written._
 21. **Positive surprise worth keeping:** `defer` + `fs.remove_all` in tests
     is a clean fixture pattern, `array.append(&mut dst, &src)` merging task
     results is exactly right, and the enum-payload `match` with per-arm
-    early `return` made the path parser pleasant. Not everything was frict
-    — the error positions in `sil`'s hand-written parser came out precise
-    on the first run.
+    early `return` made the path parser pleasant. Not everything was
+    friction — the error positions in `sil`'s hand-written parser came out
+    precise on the first run.
+
+## Round 3: fraga, valv, hylla, salva, bas
+
+22. **`.Ok(mut x)` in a match pattern is a parse error with a confusing message**
+    (`valv/src/main.ddr` → `error[E1000]: expected '('`). Wanting a mutable
+    binding out of a match is common (every "open store, mutate, save" flow);
+    the only working spell is `.Ok(x) => { mut s := x; ... }`, which the
+    error message does not suggest. Related: `.Ok(mut store)` reports
+    `match pattern requires an enum` in some positions — both messages are
+    far from the actual mistake.
+
+23. **`@resource` values cannot be returned through `match` payloads at all.**
+    (`bas/src/bas.ddr`). `Result<Child, string>` destructured with
+    `.Ok(child) => try_insert(move child)` fails with `cannot move a borrowed
+    pattern binding; use .clone()` — and `.clone()` does not exist for
+    resources, so the suggested fix is impossible. The workaround was to
+    restructure the API so the resource never crosses a match arm
+    (`spawn_into(&mut ChildSet, ...)` inserts internally). Either resource
+    payloads should be movable out of owned match values, or the message
+    needs a resource-aware suggestion. This shaped the design of an entire
+    module — worth a docs section on "owning resources through enums".
+
+24. **Wildcard `.Err(_)` arms work but are undocumented.** Discovered by
+    necessity in #23; `syntax.md` never mentions `_` in match patterns.
+    Please document (or reject) — it's load-bearing for the pattern above.
+
+25. **`std.process.ChildSet::wait_any` returns a poll-ready count, not a slot**
+    (`bas/src/bas.ddr`). From the name I expected "the slot of a child that
+    exited" — it's actually `poll()`'s ready-fd count (0 on timeout), and you
+    still sweep `try_wait` over slots yourself. Works fine, but the name
+    invites the wrong mental model; `poll_any` would say what it does.
+
+26. **Moving a field out of an owned local result works and is great**
+    (`mut stream := result.stream`, `mut child := spawned.child`) — but note
+    the asymmetry with #23: fields of locals move freely while match payloads
+    of the same resource do not. Documenting the boundary would have saved
+    the whole #23 detour.
+
+27. **`sys.sleep_ms` returns `()`, so `_ := sys.sleep_ms(10)` is a compile
+    error** ("local requires a value"). Consistent once known; a hint in the
+    message (`unit value; call it without '_ :='`) would help, since `_ :=`
+    is the habit for every other syscall-ish call.
+
+28. **Vendoring observation:** dependency `path` entries resolve relative to
+    the *depending* manifest, so `vendor/` + `../vendor/http` works cleanly
+    per-tool. Git deps can't point at a subdirectory of a repo, so vendoring
+    was the only way to make this suite self-contained — a `subdir = ...`
+    field for git sources would remove the need.
+
+29. **Positive surprises, round 2:** `fs.temp_dir` + `defer { remove_all }`
+    kept ten test suites leak-free; the single-threaded listener/client trick
+    (connect → write → accept → handle → read) worked first try for hylla's
+    full HTTP round trip and needs no harness; `f"{tenths / 10}.{tenths % 10}"`
+    integer formatting covered decimal rendering without float printing; and
+    `route()` as a pure function over `(root, upload, method, target)` made
+    the HTTP server's security decisions testable without sockets.

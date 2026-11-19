@@ -4,24 +4,27 @@ Ten CLIs and libraries written in [Dunder](../dunder), usable for different
 purposes and doubling as real-world test programs for the language, compiler
 and standard library — the same role Hundmat plays for graphics and servers.
 
-**Status:** five tools implemented at **v0.1.0** with passing tests; five still
-planned. **Target:** Dunder **0.5.0** (built and verified with the installed
-0.5.0 compiler). Implementation feedback lives in [DUNDER-ISSUES.md](DUNDER-ISSUES.md).
+**Status:** all ten tools implemented at **v0.1.0** with passing tests
+(232 suite tests green against the installed 0.5.0 compiler). Implementation
+feedback lives in [DUNDER-ISSUES.md](DUNDER-ISSUES.md).
 
 ## Catalogs
 
 | # | Catalog | CLI | Status | Purpose | Core Dunder |
 | --- | --- | --- | --- | --- | --- |
 | 1 | [finn](finn/) | `finn` | **v0.1.0** | Recursive literal text search across file trees | `std.text`, `std.fs`, tasks |
-| 2 | [salva](salva/) | `salva` | planned | HTTP load testing with latency percentiles | `http_client`, tasks, `std.math` |
-| 3 | [hylla](hylla/) | `hylla` | planned | Static file server with directory index and uploads | `http`, `std.net`, `std.fs` |
-| 4 | [valv](valv/) | `valv` | planned | Passphrase-encrypted local secrets vault | `std.crypto`, `std.json` |
-| 5 | [fraga](fraga/) | `fraga` | planned | Ad-hoc SQLite query runner with table/CSV/JSON output | `std.sqlite`, `std.json` |
+| 2 | [salva](salva/) | `salva` | **v0.1.0** | HTTP load testing with latency percentiles | `http_client`, `std.math` |
+| 3 | [hylla](hylla/) | `hylla` | **v0.1.0** | Static file server with directory index and uploads | `http`, `std.net`, `std.fs` |
+| 4 | [valv](valv/) | `valv` | **v0.1.0** | Passphrase-encrypted local secrets vault | `std.crypto`, `std.json` |
+| 5 | [fraga](fraga/) | `fraga` | **v0.1.0** | Ad-hoc SQLite query runner with table/CSV/JSON output | `std.sqlite`, `std.json` |
 | 6 | [sil](sil/) | `sil` | **v0.1.0** | jq-lite path selection over JSON, JSONL and TOML | `std.json`, `std.toml` |
-| 7 | [bas](bas/) | `bas` | planned | Procfile-style process supervisor with restarts | `std.process`, tasks |
+| 7 | [bas](bas/) | `bas` | **v0.1.0** | Procfile-style process supervisor with restarts | `std.process`, `sys` |
 | 8 | [spar](spar/) | `spar` | **v0.1.0** | Structured JSONL logging library and log viewer | `std.json`, `sys` |
 | 9 | [lod](lod/) | `lod` | **v0.1.0** | TCP port probes and scans with CI-friendly exit codes | `std.net`, `std.json` |
 | 10 | [rita](rita/) | `rita` | **v0.1.0** | ASCII bar charts, histograms and sparklines | `std.parse`, `f64`, runes |
+
+The `http` and `http_client` packages are vendored under [vendor/](vendor/) so
+this repo builds self-contained: `git clone` + `dunder test` just works.
 
 ## How the pieces fit together
 

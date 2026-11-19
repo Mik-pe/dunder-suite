@@ -1,0 +1,68 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import bas
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: bas [--file PATH] [--restarts N] [NAME]")
+    _ := sys.eprint("       bas run NAME [--file PATH]     run one entry in the foreground")
+    _ := sys.eprint("  --file PATH     basfile to load (default: basfile)")
+    _ := sys.eprint("  --restarts N    restart budget per entry (default 0; N means N retries)")
+    _ := sys.eprint("basfile lines: 'name: program arg arg ...' (# comments, blank lines ignored)")
+    return 2
+}
+
+fn main() -> i32 {
+    mut path := "basfile"
+    mut restarts := 0
+    mut name := ""
+    mut run_mode := false
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--file" {
+            if i + 1 >= count { _ := sys.eprint("bas: missing value after --file"); return 2 }
+            i += 1
+            path = sys.arg(i)
+        } else if a == "--restarts" {
+            if i + 1 >= count { _ := sys.eprint("bas: missing value after --restarts"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 0 || n.value > 100 { _ := sys.eprint("bas: --restarts must be 0..100"); return 2 }
+            restarts = i32(n.value)
+        } else if a == "run" && name.len == 0 {
+            run_mode = true
+        } else if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("bas: unknown flag " + a)
+            return 2
+        } else if name.len == 0 {
+            name = a.clone()
+        } else {
+            return usage()
+        }
+        i += 1
+    }
+
+    mut entries: []bas.Entry = []
+    match bas.load(path) {
+        .Ok(loaded) => { entries = loaded },
+        .Err(e) => { _ := sys.eprint("bas: " + e); return 2 },
+    }
+
+    if run_mode {
+        if name.len == 0 { return usage() }
+        for entry in entries {
+            if entry.name == name { return bas.run_single(&entry) }
+        }
+        _ := sys.eprint("bas: no entry named " + name)
+        return 2
+    }
+
+    if name.len > 0 {
+        _ := sys.eprint("bas: unknown argument " + name)
+        return usage()
+    }
+    bas.supervise(&entries, restarts)
+}

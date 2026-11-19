@@ -1,6 +1,6 @@
 # salva — HTTP load testing
 
-**CLI:** `salva` · **Library:** `import salva` · **Status:** planned · **Target:** Dunder 0.5.0
+**CLI:** `salva` · **Library:** `import salva` · **Status:** v0.1.0 — implemented, tests passing · **Target:** Dunder 0.5.0
 
 *Salva* is Swedish for a "volley" or "salvo" — a burst of fire. This tool fires
 salvos of HTTP requests at a service and reports latency percentiles, built on
@@ -11,72 +11,51 @@ the `http_client` package.
 Measure a service before you ship it:
 
 - Fixed request count (`-n`) or duration (`-t`) runs
-- Concurrency via isolated tasks (`-c`), each task issuing sequential requests
-- Latency percentiles (p50/p90/p95/p99), throughput, status-code histogram
-- Transport-code classification (connect failure vs timeout vs HTTP error)
-- JSON or plain-text report; histogram feeds straight into `rita hist`
+- Latency percentiles (p50/p90/p95/p99), min/max, throughput
+- Transport-code classification: connection failures abort with the libcurl code
+- Text or JSON report
 
-## CLI
+## CLI (v0.1.0)
 
 ```sh
-salva -n 200 -c 8 https://api.example.com/health
-salva -n 1000 -c 16 -m POST -b '{"x":1}' -H content-type=application/json https://api.example.com/items
-salva -t 30s -c 4 --json https://example.com/ | rita hist --field latency_ms
+salva -n 200 http://127.0.0.1:8080/health
+salva -t 5 http://example.com/                  # duration mode
+salva -n 20 --json http://127.0.0.1:8080/ | sil .p95_ms
+salva -n 5 -m POST -H content-type=application/json -b '{"x":1}' http://api/items
 ```
-
-Sample text report:
 
 ```text
-200 requests in 3.9s (51.3 rps)
-latency ms: p50=18 p90=42 p95=61 p99=140 max=210
-status: 200=196 404=3 500=1
-transport: timeouts=0 refused=0
+$ salva -n 50 http://127.0.0.1:18433/notes.txt
+50 requests in 24 ms (2083.3 rps)
+latency ms: p50=0 p90=1 p95=1 p99=6 max=6
+transport: failures=0
 ```
+
+Requests are **sequential** in v0.1: Dunder's task workers may not perform
+ambient I/O, so concurrency waits on the runtime. A hard transport failure on
+the first request aborts the run (e.g. `transport code 7` = connection
+refused). HTTP error statuses count as completed requests (per `http_client`
+semantics); a per-status histogram is planned for v0.2.
 
 ## Library
 
-```dunder
-import salva
-
-fn main() -> i32 {
-    config := salva.Config {
-        url: "https://api.example.com/health",
-        total: 200,
-        concurrency: 8,
-        method: "GET",
-        timeout_ms: 5000,
-    }
-    report := salva.run(&config)
-    if !report.ok { print(report.error); return 1 }
-    print(f"p95 = {report.p95} ms over {report.count} requests")
-    return 0
-}
-```
-
-Planned API:
-
 | Item | Meaning |
 | --- | --- |
-| `Config` | URL, method, headers, body, total/duration, concurrency, timeout |
-| `Sample { status, transport_code, latency_ms }` | One completed request |
-| `Report` | Count, rps, sorted latencies, percentiles, `Map<i32, i64>` status histogram |
-| `run(&Config) -> Report` | Executes via `task scope`, then reduces |
+| `Config` | URL, method, headers, body, count/duration, timeout, body cap |
+| `Sample { status, transport_code, latency_ms, ok, error }` | One completed request |
+| `run(&Config) -> Result<([]Sample, wall_ms), string>` | Executes with early abort on first-request failure |
+| `summarize(&[]Sample, wall_ms) -> Report` | Percentiles via `sort_by(math.total_cmp_f64)` — pure, unit-tested |
+| `render_text` / `render_json` | Report output |
 
 ## Dunder capabilities used
 
 | Area | What |
 | --- | --- |
-| `http_client` package | `request(method, url, ...)`; `transport_code` drives error classes |
-| Tasks | `task scope pool(c)`; each worker accumulates `[]Sample` (`Sendable`), merged with `await!` |
-| `std.math` / `std.array` | Percentiles via `sort_by(total_cmp_f64)` on the latency array |
-| `std.json` | Machine-readable report output |
+| `http_client` package (vendored) | `request(method, url, ...)` with TLS verification |
+| `std.math` | `total_cmp_f64` for deterministic float ordering |
+| `std.json` | Machine-readable reports |
 
-Requires `capability network` and the `http_client` package. Concurrent tasks
-need a libcurl with thread-safe global init (documented `http_client` caveat);
-`-c 1` gives a deterministic sequential mode otherwise.
+Requires `capability network` and the system libcurl. Verified live against
+`hylla` (2000+ rps on loopback).
 
-## Dogfooding value
-
-- Sustained mixed I/O + timing workload (`sys` monotonic clock)
-- Large `[]f64` sorting and statistics on real distributions
-- Integration between packages: `http_client` + tasks + JSON writer
+Run the tests: `dunder test` (5 suite tests + stdlib tests).

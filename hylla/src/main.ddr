@@ -1,0 +1,56 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import hylla
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: hylla [--port N] [--dir PATH] [--upload PATH] [--timeout-ms N]")
+    _ := sys.eprint("  --dir PATH        directory to serve (default: .)")
+    _ := sys.eprint("  --port N          listen port; 0 picks a free port (default: 8080)")
+    _ := sys.eprint("  --upload PATH     accept PUT/POST writes under PATH (off by default)")
+    _ := sys.eprint("  --timeout-ms N    per-request deadline (default: 10000)")
+    _ := sys.eprint("dot-dot segments are rejected; uploads are stored under their basename")
+    return 2
+}
+
+fn main() -> i32 {
+    mut cfg := hylla.default_config()
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--port" {
+            if i + 1 >= count { _ := sys.eprint("hylla: missing value after --port"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 0 || n.value > 65535 {
+                _ := sys.eprint("hylla: --port must be 0..65535")
+                return 2
+            }
+            cfg.port = i32(n.value)
+        } else if a == "--dir" {
+            if i + 1 >= count { _ := sys.eprint("hylla: missing value after --dir"); return 2 }
+            i += 1
+            cfg.root = sys.arg(i)
+        } else if a == "--upload" {
+            if i + 1 >= count { _ := sys.eprint("hylla: missing value after --upload"); return 2 }
+            i += 1
+            cfg.upload_dir = sys.arg(i)
+        } else if a == "--timeout-ms" {
+            if i + 1 >= count { _ := sys.eprint("hylla: missing value after --timeout-ms"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 100 || n.value > 120000 {
+                _ := sys.eprint("hylla: --timeout-ms must be 100..120000")
+                return 2
+            }
+            cfg.timeout_ms = n.value
+        } else {
+            _ := sys.eprint("hylla: unknown argument " + a)
+            return 2
+        }
+        i += 1
+    }
+    return hylla.serve(&cfg)
+}

@@ -1,0 +1,214 @@
+capability filesystem
+
+import std.bytes as bytes
+import std.json as json
+import std.sqlite as sqlite
+import std.text as text
+
+pub struct Query {
+    database: string,
+    sql: string,
+    params: []string,
+    read_only: bool,
+}
+
+pub struct Rows {
+    columns: []string,
+    rows: [][]string,
+}
+
+pub fn scalar_text(doc: &json.Doc, node: i32) -> string {
+    kind := doc.kind(node)
+    if kind == .String { return doc.as_str(node).value }
+    if kind == .Bool {
+        if doc.as_bool(node).value { return "true" }
+        return "false"
+    }
+    if kind == .Null { return "" }
+    doc.raw_span(node)
+}
+
+pub fn run(query: &Query) -> Result<Rows, string> {
+    opened := sqlite.Database::open(query.database, query.read_only)
+    if !opened.ok { return .Err(opened.error) }
+    mut db := opened.db
+    defer { _ := db.close() }
+    result := db.query(query.sql, &query.params)
+    if !result.ok { return .Err(result.error) }
+    if result.rows.len == 0 { return .Ok(Rows { columns: [], rows: [] }) }
+
+    mut columns: []string = []
+    mut parsed: [][]string = []
+    for row in result.rows {
+        doc := json.Doc::parse_text(row)
+        if !doc.ok { return .Err("undecodable row from sqlite") }
+        count := doc.count(doc.root)
+        if columns.len == 0 {
+            for i in 0..count {
+                key := doc.key_at(doc.root, i)
+                if !key.ok { return .Err("undecodable column name from sqlite") }
+                columns.push(key.value.clone())
+            }
+        }
+        mut values: []string = []
+        for i in 0..count {
+            values.push(scalar_text(&doc, doc.val_at(doc.root, i)))
+        }
+        parsed.push(values.clone())
+    }
+    .Ok(Rows { columns: columns, rows: parsed })
+}
+
+pub fn execute(query: &Query) -> Result<i64, string> {
+    opened := sqlite.Database::open(query.database, query.read_only)
+    if !opened.ok { return .Err(opened.error) }
+    mut db := opened.db
+    defer { _ := db.close() }
+    result := db.exec(query.sql, &query.params)
+    if !result.ok { return .Err(result.error) }
+    .Ok(result.changes)
+}
+
+pub struct Outcome {
+    rows: Rows,
+}
+
+pub fn run_any(query: &Query) -> Result<Outcome, string> {
+    opened := sqlite.Database::open(query.database, query.read_only)
+    if !opened.ok { return .Err(opened.error) }
+    mut db := opened.db
+    defer { _ := db.close() }
+    result := db.execute_rows(query.sql, &query.params)
+    if !result.ok { return .Err(result.error) }
+    if result.rows.len == 0 {
+        return .Ok(Outcome { rows: Rows { columns: [], rows: [] } })
+    }
+
+    mut columns: []string = []
+    mut parsed: [][]string = []
+    for row in result.rows {
+        doc := json.Doc::parse_text(row)
+        if !doc.ok { return .Err("undecodable row from sqlite") }
+        count := doc.count(doc.root)
+        if columns.len == 0 {
+            for i in 0..count {
+                key := doc.key_at(doc.root, i)
+                if !key.ok { return .Err("undecodable column name from sqlite") }
+                columns.push(key.value.clone())
+            }
+        }
+        mut values: []string = []
+        for i in 0..count {
+            values.push(scalar_text(&doc, doc.val_at(doc.root, i)))
+        }
+        parsed.push(values.clone())
+    }
+    .Ok(Outcome { rows: Rows { columns: columns, rows: parsed } })
+}
+
+fn leading_word_upper(sql: string) -> string {
+    mut out: []u8 = []
+    for b in text.trim(sql).bytes() {
+        if b < 65 || (b > 90 && b < 97) || b > 122 { break }
+        if b >= 97 && b <= 122 { out.push(u8(b - 32)) }
+        else { out.push(u8(b)) }
+    }
+    bytes.decode(&out).value
+}
+
+pub fn looks_like_read(sql: string) -> bool {
+    word := leading_word_upper(sql)
+    word == "SELECT" || word == "PRAGMA" || word == "WITH" || word == "EXPLAIN"
+}
+
+fn append_row(out: &mut []u8, cells: &[]string, widths: &[]i32) {
+    for i in 0..cells.len {
+        if i > 0 { bytes.append_utf8(&mut out, "  ") }
+        bytes.append_utf8(&mut out, cells[i])
+        mut pad := widths[i] - cells[i].len
+        for _ in 0..pad { out.push(b' ') }
+    }
+    bytes.append_utf8(&mut out, "\n")
+}
+
+pub fn render_table(rows: &Rows) -> string {
+    if rows.columns.len == 0 { return "(0 rows)" }
+    mut widths: []i32 = []
+    for c in rows.columns { widths.push(c.len) }
+    for row in rows.rows {
+        for i in 0..row.len {
+            if row[i].len > widths[i] { widths[i] = row[i].len }
+        }
+    }
+    mut separators: []string = []
+    for w in widths {
+        mut dashes := ""
+        for _ in 0..w { dashes = dashes + "-" }
+        separators.push(dashes.clone())
+    }
+    mut out: []u8 = []
+    append_row(&mut out, &rows.columns, &widths)
+    append_row(&mut out, &separators, &widths)
+    for row in rows.rows {
+        append_row(&mut out, &row, &widths)
+    }
+    bytes.append_utf8(&mut out, f"({rows.rows.len} rows)\n")
+    bytes.decode(&out).value
+}
+
+pub fn render_csv(rows: &Rows) -> string {
+    if rows.columns.len == 0 { return "" }
+    mut out: []string = []
+    out.push(csv_line(&rows.columns))
+    for row in rows.rows {
+        out.push(csv_line(&row))
+    }
+    mut joined := ""
+    for line in out { joined = joined + line + "\n" }
+    joined
+}
+
+fn csv_line(cells: &[]string) -> string {
+    mut line := ""
+    for i in 0..cells.len {
+        if i > 0 { line = line + "," }
+        line = line + csv_cell(cells[i])
+    }
+    line
+}
+
+fn csv_cell(cell: string) -> string {
+    mut needs_quotes := false
+    for b in cell.bytes() {
+        if b == 44 || b == 34 || b == 10 || b == 13 { needs_quotes = true }
+    }
+    if !needs_quotes { return cell.clone() }
+    mut out: []u8 = []
+    out.push(b'"')
+    for b in cell.bytes() {
+        if b == 34 { out.push(b'"') }
+        out.push(u8(b))
+    }
+    out.push(b'"')
+    bytes.decode(&out).value
+}
+
+pub fn render_json(rows: &Rows) -> string {
+    if rows.columns.len == 0 { return "[]" }
+    mut w := json.Writer::new()
+    w.array()
+    for row in rows.rows {
+        w.object()
+        for i in 0..rows.columns.len {
+            if i < row.len {
+                w.key(rows.columns[i])
+                w.string(row[i])
+            }
+        }
+        w.end()
+    }
+    w.end()
+    done := w.finish()
+    if done.ok { return done.value }
+    "[]"
+}

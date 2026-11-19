@@ -1,0 +1,6 @@
+name = "hylla"
+root = "src/main.ddr"
+test_root = "tests/suite.ddr"
+
+[dependencies]
+http = { path = "../vendor/http" }

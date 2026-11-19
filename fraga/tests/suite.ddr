@@ -1,0 +1,133 @@
+capability filesystem
+
+import std.fs as fs
+
+import ..src.fraga as fraga
+
+fn setup_db() -> Result<(string, string), string> {
+    dir_result := fs.temp_dir("fraga-suite-")
+    if !dir_result.ok { return .Err("temp_dir failed") }
+    root := dir_result.value
+    path := root + "/test.db"
+    created := fraga.execute(&fraga.Query {
+        database: path.clone(),
+        sql: "CREATE TABLE items(id INTEGER PRIMARY KEY, name TEXT)",
+        params: [],
+        read_only: false,
+    })
+    if !created.is_ok() { return .Err("create failed") }
+    inserted := fraga.execute(&fraga.Query {
+        database: path.clone(),
+        sql: "INSERT INTO items(name) VALUES(?), (?), (?)",
+        params: ["ada", "with, comma", "say \"hi\""],
+        read_only: false,
+    })
+    if !inserted.is_ok() { return .Err("insert failed") }
+    .Ok((root, path))
+}
+
+fn select_from(path: string, sql: string, params: []string) -> fraga.Rows {
+    match fraga.run(&fraga.Query {
+        database: path.clone(),
+        sql: sql.clone(),
+        params: params.clone(),
+        read_only: true,
+    }) {
+        .Ok(rows) => { rows },
+        .Err(e) => { assert(e.len >= 0); assert(false); fraga.Rows { columns: [], rows: [] } },
+    }
+}
+
+@test fn run_reads_columns_and_values() {
+    setup := setup_db()
+    assert(setup.is_ok())
+    match setup {
+        .Ok(pair) => {
+            defer { _ := fs.remove_all(pair.0) }
+            rows := select_from(pair.1, "SELECT id, name FROM items ORDER BY id", [])
+            assert(rows.columns.len == 2)
+            assert(rows.columns[0] == "id")
+            assert(rows.columns[1] == "name")
+            assert(rows.rows.len == 3)
+            assert(rows.rows[0][0] == "1")
+            assert(rows.rows[0][1] == "ada")
+            assert(rows.rows[1][1] == "with, comma")
+            assert(rows.rows[2][1] == "say \"hi\"")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn null_renders_as_empty_cell() {
+    setup := setup_db()
+    assert(setup.is_ok())
+    match setup {
+        .Ok(pair) => {
+            defer { _ := fs.remove_all(pair.0) }
+            rows := select_from(pair.1, "SELECT NULL AS n, 1 AS one", [])
+            assert(rows.rows[0][0] == "")
+            assert(rows.rows[0][1] == "1")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn readonly_connection_rejects_writes() {
+    setup := setup_db()
+    assert(setup.is_ok())
+    match setup {
+        .Ok(pair) => {
+            defer { _ := fs.remove_all(pair.0) }
+            attempt := fraga.execute(&fraga.Query {
+                database: pair.1.clone(),
+                sql: "INSERT INTO items(name) VALUES('nope')",
+                params: [],
+                read_only: true,
+            })
+            assert(attempt.is_err())
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn params_bind_in_order() {
+    setup := setup_db()
+    assert(setup.is_ok())
+    match setup {
+        .Ok(pair) => {
+            defer { _ := fs.remove_all(pair.0) }
+            rows := select_from(pair.1, "SELECT name FROM items WHERE id = ?", ["2"])
+            assert(rows.rows.len == 1)
+            assert(rows.rows[0][0] == "with, comma")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn render_table_aligns_columns() {
+    rows := fraga.Rows {
+        columns: ["id", "name"],
+        rows: [["1", "ada"], ["22", "grace"]],
+    }
+    rendered := fraga.render_table(&rows)
+    assert(rendered == "id  name \n--  -----\n1   ada  \n22  grace\n(2 rows)\n")
+    assert(fraga.render_table(&fraga.Rows { columns: [], rows: [] }) == "(0 rows)")
+}
+
+@test fn render_csv_quotes_special_cells() {
+    rows := fraga.Rows {
+        columns: ["a", "b"],
+        rows: [["1", "with, comma"], ["2", "say \"hi\""], ["3", "plain"]],
+    }
+    rendered := fraga.render_csv(&rows)
+    assert(rendered == "a,b\n1,\"with, comma\"\n2,\"say \"\"hi\"\"\"\n3,plain\n")
+}
+
+@test fn looks_like_read_classifies_statements() {
+    assert(fraga.looks_like_read("SELECT 1"))
+    assert(fraga.looks_like_read("  select x from t"))
+    assert(fraga.looks_like_read("PRAGMA integrity_check"))
+    assert(fraga.looks_like_read("WITH t AS (SELECT 1) SELECT * FROM t"))
+    assert(!fraga.looks_like_read("INSERT INTO t VALUES(1)"))
+    assert(!fraga.looks_like_read("CREATE TABLE t(x)"))
+}

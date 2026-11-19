@@ -1,0 +1,86 @@
+capability process, filesystem
+
+import std.fs as fs
+import std.sys as sys
+import std.text as text
+
+import ..src.bas as bas
+
+@test fn parse_basfile_reads_entries_comments_and_args() {
+    content := "# comment line\n\n" +
+        "web: /bin/echo serving now\n" +
+        "worker: /usr/bin/false extra args here\n"
+    match bas.parse_basfile(content) {
+        .Ok(entries) => {
+            assert(entries.len == 2)
+            assert(entries[0].name == "web")
+            assert(entries[0].program == "/bin/echo")
+            assert(entries[0].args.len == 2)
+            assert(entries[0].args[0] == "serving")
+            assert(entries[1].name == "worker")
+            assert(entries[1].args.len == 3)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_basfile_rejects_malformed_lines() {
+    assert(bas.parse_basfile("nocolon here").is_err())
+    assert(bas.parse_basfile(": only command").is_err())
+    assert(bas.parse_basfile("name:    ").is_err())
+    assert(bas.parse_basfile("# only comments\n\n").is_err())
+}
+
+@test fn run_single_returns_the_child_exit_code() {
+    ok_entry := bas.Entry { name: "fine", program: "/bin/echo", args: ["hi"] }
+    assert(bas.run_single(&ok_entry) == 0)
+
+    bad_entry := bas.Entry { name: "nope", program: "/definitely/not/a/program", args: [] }
+    spawn_failure := bas.run_single(&bad_entry)
+    assert(spawn_failure != 0)
+}
+
+@test fn supervise_runs_entries_once_without_restarts() {
+    dir := fs.temp_dir("bas-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    marker := root + "/runs.txt"
+
+    mut script := "echo run >> " + marker
+    entry := bas.Entry { name: "once", program: "/bin/sh", args: ["-c", script.clone()] }
+    entries: []bas.Entry = [entry]
+    code := bas.supervise(&entries, 0)
+    assert(code == 0)
+
+    content := sys.read_text(marker)
+    assert(content.ok)
+    mut runs := 0
+    for line in text.split(content.value, "\n") {
+        if text.trim(line).len > 0 { runs += 1 }
+    }
+    assert(runs == 1)
+}
+
+@test fn supervise_restarts_only_failing_entries() {
+    dir := fs.temp_dir("bas-suite-restart-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    marker := root + "/runs.txt"
+
+    mut script := "echo run >> " + marker + "; exit 1"
+    flaky := bas.Entry { name: "flaky", program: "/bin/sh", args: ["-c", script.clone()] }
+    fine := bas.Entry { name: "fine", program: "/bin/echo", args: ["ok"] }
+    entries: []bas.Entry = [flaky, fine]
+    code := bas.supervise(&entries, 2)
+    assert(code == 1)
+
+    content := sys.read_text(marker)
+    assert(content.ok)
+    mut runs := 0
+    for line in text.split(content.value, "\n") {
+        if text.trim(line).len > 0 { runs += 1 }
+    }
+    assert(runs == 3)
+}
