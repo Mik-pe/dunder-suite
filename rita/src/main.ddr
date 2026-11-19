@@ -1,0 +1,74 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import rita
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: rita bar|hist|spark [--width N] [--buckets N] NUMBER...")
+    _ := sys.eprint("  bar    labeled horizontal bars, one per number")
+    _ := sys.eprint("  hist   histogram with bucket range labels")
+    _ := sys.eprint("  spark  one-line block-character sparkline")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    command := sys.arg(1)
+    if command != "bar" && command != "hist" && command != "spark" { return usage() }
+    mut opts := rita.default_options()
+    mut numbers: []string = []
+    mut i := 2
+    while i < count {
+        a := sys.arg(i)
+        if a == "--width" {
+            if i + 1 >= count { _ := sys.eprint("rita: missing value after --width"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 || n.value > 200 {
+                _ := sys.eprint("rita: --width must be 1..200")
+                return 2
+            }
+            opts.width = i32(n.value)
+        } else if a == "--buckets" {
+            if i + 1 >= count { _ := sys.eprint("rita: missing value after --buckets"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 || n.value > 64 {
+                _ := sys.eprint("rita: --buckets must be 1..64")
+                return 2
+            }
+            opts.buckets = i32(n.value)
+        } else if text.starts_with(a, "--") {
+            _ := sys.eprint("rita: unknown flag " + a)
+            return 2
+        } else {
+            numbers.push(a.clone())
+        }
+        i += 1
+    }
+    if numbers.len == 0 { _ := sys.eprint("rita: no numbers given"); return 2 }
+    mut joined := ""
+    for n in numbers { joined = joined + n + " " }
+
+    mut values: []f64 = []
+    mut failure := ""
+    match rita.parse_numbers(joined) {
+        .Ok(parsed) => { values = parsed },
+        .Err(e) => { failure = e },
+    }
+    if failure.len > 0 {
+        _ := sys.eprint("rita: " + failure)
+        return 1
+    }
+
+    if command == "bar" {
+        print(rita.bar_chart(&values, &opts))
+    } else if command == "hist" {
+        print(rita.histogram(&values, &opts))
+    } else {
+        print(rita.sparkline(&values))
+    }
+    return 0
+}

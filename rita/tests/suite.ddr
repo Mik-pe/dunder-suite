@@ -1,0 +1,82 @@
+import ..src.rita as rita
+
+@test fn parse_numbers_accepts_mixed_separators() {
+    parsed := rita.parse_numbers("1 2,3\t4\n5.5")
+    assert(parsed.is_ok())
+    match parsed {
+        .Ok(values) => {
+            assert(values.len == 5)
+            assert(values[0] == 1.0)
+            assert(values[4] == 5.5)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_numbers_rejects_garbage() {
+    assert(rita.parse_numbers("1 x 2").is_err())
+}
+
+@test fn parse_numbers_rejects_empty_input() {
+    assert(rita.parse_numbers("   ").is_err())
+}
+
+@test fn parse_numbers_collapses_repeated_separators() {
+    parsed := rita.parse_numbers("1  2")
+    assert(parsed.is_ok())
+    match parsed {
+        .Ok(values) => {
+            assert(values.len == 2)
+            assert(values[0] == 1.0)
+            assert(values[1] == 2.0)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn min_and_max_scan_the_series() {
+    values: []f64 = [3.5, -1.25, 9.0, 0.5]
+    assert(rita.min_value(&values) == -1.25)
+    assert(rita.max_value(&values) == 9.0)
+}
+
+@test fn bar_chart_scales_bars_to_width() {
+    opts := rita.Options { width: 4, buckets: 8, labels: false }
+    chart := rita.bar_chart(&[1.0, 2.0], &opts)
+    assert(chart == "1.0 |██\n2.0 |████\n")
+}
+
+@test fn bar_chart_keeps_minimum_one_block_for_positive_values() {
+    opts := rita.Options { width: 10, buckets: 8, labels: false }
+    chart := rita.bar_chart(&[100.0, 1.0], &opts)
+    assert(chart == "100.0 |██████████\n  1.0 |█\n")
+}
+
+@test fn histogram_buckets_counts_and_labels() {
+    opts := rita.Options { width: 10, buckets: 2, labels: false }
+    chart := rita.histogram(&[1.0, 1.0, 2.0, 3.0], &opts)
+    assert(chart == "  1..2 |██████████\n  2..3 |██████████\n")
+}
+
+@test fn histogram_repeats_last_bucket_for_upper_edge() {
+    opts := rita.Options { width: 10, buckets: 2, labels: false }
+    chart := rita.histogram(&[1.0, 3.0], &opts)
+    assert(chart == "  1..2 |██████████\n  2..3 |██████████\n")
+}
+
+@test fn sparkline_maps_range_to_blocks() {
+    line := rita.sparkline(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+    assert(line == "▁▂▃▄▅▆▇█")
+}
+
+@test fn sparkline_flat_series_uses_middle_block() {
+    assert(rita.sparkline(&[4.0, 4.0]) == "▄▄")
+}
+
+@test fn format_edge_trims_float_noise() {
+    assert(rita.format_edge(1.0) == "1")
+    assert(rita.format_edge(3.6666666666666665) == "3.67")
+    assert(rita.format_edge(-0.5) == "-0.5")
+    assert(rita.format_edge(0.0) == "0")
+    assert(rita.format_edge(2.05) == "2.05")
+}

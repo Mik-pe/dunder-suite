@@ -1,0 +1,205 @@
+import std.bytes as bytes
+import std.json as json
+import std.parse as parse
+import std.toml as toml
+
+pub enum Segment {
+    Key(string),
+    Index(i32),
+}
+
+pub fn parse_path(path: string) -> Result<[]Segment, string> {
+    mut segments: []Segment = []
+    mut i := 0
+    if i < path.len && path[i] == 46 { i += 1 }
+    while i < path.len {
+        b := path[i]
+        if b == 91 {
+            i += 1
+            start := i
+            while i < path.len && path[i] >= 48 && path[i] <= 57 { i += 1 }
+            if i == start || i >= path.len || path[i] != 93 {
+                return .Err(f"expected [N] with decimal digits at byte {start} of path {json.quote(path)}")
+            }
+            digits := path[start..i]
+            i += 1
+            if i < path.len && path[i] == 46 {
+                i += 1
+                if i >= path.len {
+                    return .Err("path ends after '.'")
+                }
+            }
+            match parse.value<i32>(digits) {
+                .Ok(n) => { segments.push(.Index(n)) },
+                .Err(e) => { return .Err(e) },
+            }
+        } else {
+            start := i
+            while i < path.len {
+                c := path[i]
+                if c == 46 || c == 91 { break }
+                i += 1
+            }
+            if i == start {
+                return .Err(f"empty key at byte {start} of path {json.quote(path)}")
+            }
+            segments.push(.Key(path[start..i]))
+            if i < path.len && path[i] == 46 {
+                i += 1
+                if i >= path.len {
+                    return .Err("path ends after '.'")
+                }
+            }
+        }
+    }
+    if segments.len == 0 {
+        if path == "." { return .Ok(segments) }
+        return .Err("empty path")
+    }
+    .Ok(segments)
+}
+
+pub struct Selection { ok: bool, node: i32, error: string }
+
+pub fn describe(segments: &[]Segment) -> string {
+    mut out := ""
+    for seg in segments {
+        match seg {
+            .Key(name) => { out = out + "." + name },
+            .Index(n) => { out = out + f"[{n}]" },
+        }
+    }
+    out
+}
+
+fn place(segments: &[]Segment, count: i32) -> string {
+    prefix := describe_prefix(segments, count)
+    if prefix.len == 0 { return "the document root" }
+    prefix
+}
+
+pub fn select(doc: &json.Doc, from: i32, segments: &[]Segment) -> Selection {
+    mut node := from
+    mut position := 0
+    for seg in segments {
+        match seg {
+            .Key(name) => {
+                if doc.kind(node) != .Object {
+                    return Selection {
+                        ok: false, node: -1,
+                        error: f"expected an object at {place(segments, position)}",
+                    }
+                }
+                node = doc.field(node, name)
+                if node < 0 {
+                    return Selection {
+                        ok: false, node: -1,
+                        error: f"no key {json.quote(name)} at {place(segments, position)}",
+                    }
+                }
+            },
+            .Index(n) => {
+                if doc.kind(node) != .Array {
+                    return Selection {
+                        ok: false, node: -1,
+                        error: f"expected an array at {place(segments, position)}",
+                    }
+                }
+                if n < 0 || n >= doc.count(node) {
+                    return Selection {
+                        ok: false, node: -1,
+                        error: f"index {n} out of bounds at {place(segments, position)}",
+                    }
+                }
+                node = doc.at(node, n)
+            },
+        }
+        position += 1
+    }
+    Selection { ok: true, node: node, error: "" }
+}
+
+fn describe_prefix(segments: &[]Segment, count: i32) -> string {
+    mut out := ""
+    mut seen := 0
+    for seg in segments {
+        if seen >= count { break }
+        match seg {
+            .Key(name) => { out = out + "." + name },
+            .Index(n) => { out = out + f"[{n}]" },
+        }
+        seen += 1
+    }
+    out
+}
+
+pub fn toml_to_json(input: string) -> Result<string, string> {
+    parsed := toml.parse(input)
+    if !parsed.ok { return .Err(parsed.error) }
+    .Ok(parsed.json)
+}
+
+fn indent(out: &mut []u8, depth: i32) {
+    for _ in 0..depth * 2 { out.push(b' ') }
+}
+
+fn write_pretty(doc: &json.Doc, node: i32, out: &mut []u8, depth: i32) {
+    kind := doc.kind(node)
+    if kind == .Object {
+        if doc.count(node) == 0 {
+            bytes.append_utf8(&mut out, "{}")
+            return
+        }
+        bytes.append_utf8(&mut out, "{\n")
+        mut cur := doc.first_child[node]
+        mut first := true
+        while cur >= 0 {
+            if !first { bytes.append_utf8(&mut out, ",\n") }
+            first = false
+            indent(&mut out, depth + 1)
+            key_start := doc.key_starts[cur] - 1
+            key_end := doc.key_ends[cur] + 1
+            bytes.extend_range(&mut out, &doc.input, key_start, key_end)
+            bytes.append_utf8(&mut out, ": ")
+            write_pretty(doc, cur, &mut out, depth + 1)
+            cur = doc.next_sibling[cur]
+        }
+        bytes.append_utf8(&mut out, "\n")
+        indent(&mut out, depth)
+        bytes.append_utf8(&mut out, "}")
+        return
+    }
+    if kind == .Array {
+        if doc.count(node) == 0 {
+            bytes.append_utf8(&mut out, "[]")
+            return
+        }
+        bytes.append_utf8(&mut out, "[\n")
+        mut cur := doc.first_child[node]
+        mut first := true
+        while cur >= 0 {
+            if !first { bytes.append_utf8(&mut out, ",\n") }
+            first = false
+            indent(&mut out, depth + 1)
+            write_pretty(doc, cur, &mut out, depth + 1)
+            cur = doc.next_sibling[cur]
+        }
+        bytes.append_utf8(&mut out, "\n")
+        indent(&mut out, depth)
+        bytes.append_utf8(&mut out, "]")
+        return
+    }
+    if kind == .String {
+        value_start := doc.starts[node] - 1
+        value_end := doc.ends[node] + 1
+        bytes.extend_range(&mut out, &doc.input, value_start, value_end)
+        return
+    }
+    bytes.append_utf8(&mut out, doc.raw_span(node))
+}
+
+pub fn render_pretty(doc: &json.Doc, node: i32) -> string {
+    mut out: []u8 = []
+    write_pretty(doc, node, &mut out, 0)
+    bytes.decode(&out).value
+}

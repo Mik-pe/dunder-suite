@@ -1,0 +1,80 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import lod
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: lod probe [--timeout-ms N] [--json] HOST:PORT...")
+    _ := sys.eprint("       lod scan  [--timeout-ms N] [--json] HOST PORTS")
+    _ := sys.eprint("  HOST:PORT   probe one target, e.g. db.internal:5432 or [::1]:443")
+    _ := sys.eprint("  PORTS       comma list and ranges, e.g. 80,443,8000-8004")
+    _ := sys.eprint("exit: 0 all open, 1 some closed, 2 error")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    command := sys.arg(1)
+    if command != "probe" && command != "scan" { return usage() }
+
+    mut timeout_ms := 1000
+    mut as_json := false
+    mut positional: []string = []
+    mut i := 2
+    while i < count {
+        a := sys.arg(i)
+        if a == "--timeout-ms" {
+            if i + 1 >= count { _ := sys.eprint("lod: missing value after --timeout-ms"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 || n.value > 60000 {
+                _ := sys.eprint("lod: --timeout-ms must be 1..60000")
+                return 2
+            }
+            timeout_ms = i32(n.value)
+        } else if a == "--json" {
+            as_json = true
+        } else if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("lod: unknown flag " + a)
+            return 2
+        } else {
+            positional.push(a.clone())
+        }
+        i += 1
+    }
+
+    mut probes: []lod.Probe = []
+    mut failure := ""
+    if command == "probe" {
+        if positional.len == 0 { return usage() }
+        match lod.probe_targets(&positional, timeout_ms) {
+            .Ok(results) => { probes = results },
+            .Err(e) => { failure = e },
+        }
+    } else {
+        if positional.len != 2 { return usage() }
+        host := positional[0].clone()
+        match lod.parse_ports(positional[1]) {
+            .Ok(ports) => { probes = lod.probe_ports(host, &ports, timeout_ms) },
+            .Err(e) => { failure = e },
+        }
+    }
+    if failure.len > 0 {
+        _ := sys.eprint("lod: " + failure)
+        return 2
+    }
+    if probes.len == 0 {
+        _ := sys.eprint("lod: nothing to probe")
+        return 2
+    }
+
+    if as_json {
+        print(lod.render_json(&probes))
+    } else {
+        print(lod.render_table(&probes))
+    }
+    if lod.count_closed(&probes) > 0 { return 1 }
+    return 0
+}

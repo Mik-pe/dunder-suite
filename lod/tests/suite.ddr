@@ -1,0 +1,97 @@
+capability network
+
+import std.json as json
+import std.net as net
+import std.text as text
+
+import ..src.lod as lod
+
+@test fn parse_target_splits_host_and_port() {
+    match lod.parse_target("db.internal:5432") {
+        .Ok(pair) => {
+            assert(pair.0 == "db.internal")
+            assert(pair.1 == 5432)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match lod.parse_target("[::1]:443") {
+        .Ok(pair) => {
+            assert(pair.0 == "::1")
+            assert(pair.1 == 443)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_target_rejects_malformed_targets() {
+    assert(lod.parse_target("noport").is_err())
+    assert(lod.parse_target(":80").is_err())
+    assert(lod.parse_target("host:").is_err())
+    assert(lod.parse_target("host:99999").is_err())
+    assert(lod.parse_target("[::1:443").is_err())
+}
+
+@test fn parse_ports_handles_ranges_and_lists() {
+    match lod.parse_ports("80,443,8000-8002") {
+        .Ok(ports) => {
+            assert(ports.len == 5)
+            assert(ports[0] == 80)
+            assert(ports[1] == 443)
+            assert(ports[2] == 8000)
+            assert(ports[4] == 8002)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match lod.parse_ports("9000") {
+        .Ok(ports) => { assert(ports.len == 1); assert(ports[0] == 9000) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    assert(lod.parse_ports("").is_err())
+    assert(lod.parse_ports("x").is_err())
+    assert(lod.parse_ports("70000").is_err())
+}
+
+@test fn probe_detects_open_and_closed_loopback_ports() {
+    endpoint := net.SocketAddr { ip: .V4(127, 0, 0, 1), port: 0, scope_id: 0 }
+    listen := net.listen_addr(endpoint, 1)
+    assert(listen.ok)
+    mut listener := listen.listener
+    port := net.local_port(&listener)
+    assert(port > 0)
+
+    open := lod.probe("127.0.0.1", u16(port), 2000)
+    assert(open.open)
+    assert(open.open)
+    assert(open.port == u16(port))
+    assert(open.host == "127.0.0.1")
+    assert(open.latency_ms >= 0)
+
+    closed := lod.probe("127.0.0.1", 1, 2000)
+    assert(!closed.open)
+    assert(closed.error != 0)
+
+    _ := net.close_listener(&mut listener)
+}
+
+@test fn render_table_and_json_report_every_probe() {
+    probes: []lod.Probe = [
+        lod.Probe { host: "alpha", port: 8080, open: true, latency_ms: 3, error: 0 },
+        lod.Probe { host: "beta", port: 5432, open: false, latency_ms: 9, error: 61 },
+    ]
+    assert(lod.count_closed(&probes) == 1)
+
+    table := lod.render_table(&probes)
+    assert(text.find(table, "alpha") >= 0)
+    assert(text.find(table, "open") >= 0)
+    assert(text.find(table, "closed") >= 0)
+
+    doc := json.Doc::parse_text(lod.render_json(&probes))
+    assert(doc.ok)
+    assert(doc.count(doc.root) == 2)
+    first := doc.at(doc.root, 0)
+    assert(doc.get_str(first, "host").value == "alpha")
+    assert(doc.get_bool(first, "open").value)
+    assert(doc.get_u64(first, "port").value == 8080)
+    second := doc.at(doc.root, 1)
+    assert(doc.get_i64(second, "error").value == 61)
+}

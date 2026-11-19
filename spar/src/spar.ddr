@@ -1,0 +1,223 @@
+import std.bytes as bytes
+import std.json as json
+import std.text as text
+import sys
+
+pub enum Level { Debug = 0, Info = 1, Warn = 2, Error = 3 }
+
+pub enum Value { Text(string), Int(i64), Float(f64), Bool(bool) }
+
+pub struct Field { key: string, value: Value }
+
+pub fn field_str(key: string, value: string) -> Field {
+    Field { key: key.clone(), value: .Text(value.clone()) }
+}
+
+pub fn field_i64(key: string, value: i64) -> Field {
+    Field { key: key.clone(), value: .Int(value) }
+}
+
+pub fn field_f64(key: string, value: f64) -> Field {
+    Field { key: key.clone(), value: .Float(value) }
+}
+
+pub fn field_bool(key: string, value: bool) -> Field {
+    Field { key: key.clone(), value: .Bool(value) }
+}
+
+pub fn level_value(level: Level) -> i32 {
+    match level {
+        .Debug => 0,
+        .Info => 1,
+        .Warn => 2,
+        .Error => 3,
+    }
+}
+
+pub fn parse_level(name: string) -> Result<Level, string> {
+    if name == "debug" { return .Ok(.Debug) }
+    if name == "info" { return .Ok(.Info) }
+    if name == "warn" { return .Ok(.Warn) }
+    if name == "error" { return .Ok(.Error) }
+    .Err("unknown level " + name)
+}
+
+impl Display for Level {
+    fn str(&self) -> string {
+        match self {
+            .Debug => "debug",
+            .Info => "info",
+            .Warn => "warn",
+            .Error => "error",
+        }
+    }
+}
+
+pub opaque struct Logger {
+    module: string,
+    min_level: Level,
+    file_path: string,
+}
+
+impl Logger {
+    pub fn new(move module: string) -> Self {
+        Self { module: module, min_level: .Info, file_path: "" }
+    }
+
+    pub fn with_level(mut self, level: Level) -> Self {
+        self.min_level = level
+        self
+    }
+
+    pub fn with_file(mut self, move path: string) -> Self {
+        self.file_path = path
+        self
+    }
+
+    pub fn debug(&self, message: string, fields: &[]Field) { self.log(.Debug, message, fields) }
+    pub fn info(&self, message: string, fields: &[]Field) { self.log(.Info, message, fields) }
+    pub fn warn(&self, message: string, fields: &[]Field) { self.log(.Warn, message, fields) }
+    pub fn error(&self, message: string, fields: &[]Field) { self.log(.Error, message, fields) }
+
+    pub fn log(&self, level: Level, message: string, fields: &[]Field) {
+        if level_value(level) < level_value(self.min_level) { return }
+        mut w := json.Writer::new()
+        w.object()
+        w.key("ts")
+        w.integer(sys.now_ms())
+        w.key("mod")
+        w.string(self.module)
+        w.key("level")
+        w.string(level.str())
+        w.key("msg")
+        w.string(message)
+        for f in fields {
+            w.key(f.key)
+            match f.value {
+                .Text(v) => { w.string(v) },
+                .Int(v) => { w.integer(v) },
+                .Float(v) => { w.decimal(v) },
+                .Bool(v) => { w.boolean(v) },
+            }
+        }
+        w.end()
+        done := w.finish()
+        if !done.ok { return }
+        if self.file_path.len == 0 {
+            _ := sys.eprint(done.value)
+        } else {
+            _ := sys.append_text(self.file_path, done.value + "\n")
+        }
+    }
+}
+
+pub struct Query {
+    min_level: Level,
+    field_key: string,
+    field_value: string,
+    message_contains: string,
+    tail: i32,
+}
+
+pub fn all_lines() -> Query {
+    Query { min_level: .Debug, field_key: "", field_value: "", message_contains: "", tail: 0 }
+}
+
+pub fn value_text(doc: &json.Doc, node: i32) -> string {
+    kind := doc.kind(node)
+    if kind == .String { return doc.as_str(node).value }
+    if kind == .Bool {
+        if doc.as_bool(node).value { return "true" }
+        return "false"
+    }
+    doc.raw_span(node)
+}
+
+fn line_matches(line: string, query: &Query) -> bool {
+    doc := json.Doc::parse_text(line)
+    if !doc.ok { return false }
+    level_field := doc.get_str(doc.root, "level")
+    if level_field.ok {
+        match parse_level(level_field.value) {
+            .Ok(level) => {
+                if level_value(level) < level_value(query.min_level) { return false }
+            },
+            .Err(e) => { assert(e.len >= 0) },
+        }
+    }
+    if query.message_contains.len > 0 {
+        msg := doc.get_str(doc.root, "msg")
+        if !msg.ok { return false }
+        if text.find(msg.value, query.message_contains) < 0 { return false }
+    }
+    if query.field_key.len > 0 {
+        node := doc.field(doc.root, query.field_key)
+        if node < 0 { return false }
+        if value_text(&doc, node) != query.field_value { return false }
+    }
+    true
+}
+
+fn upper_ascii(s: string) -> string {
+    mut out: []u8 = []
+    for b in s.bytes() {
+        if b >= 97 && b <= 122 { out.push(u8(b - 32)) }
+        else { out.push(u8(b)) }
+    }
+    bytes.decode(&out).value
+}
+
+fn pad_right(s: string, width: i32) -> string {
+    mut out := s.clone()
+    while out.len < width { out = out + " " }
+    out
+}
+
+fn key_text(doc: &json.Doc, child: i32) -> string {
+    start := doc.key_starts[child]
+    end := doc.key_ends[child]
+    bytes.decode_range(&doc.input, start, end).value
+}
+
+fn render_line(line: string) -> string {
+    doc := json.Doc::parse_text(line)
+    if !doc.ok { return line.clone() }
+    ts := doc.get_i64(doc.root, "ts")
+    level := doc.get_str(doc.root, "level")
+    module := doc.get_str(doc.root, "mod")
+    msg := doc.get_str(doc.root, "msg")
+    mut out := "-"
+    if ts.ok { out = ts.value.str() }
+    out = out + " "
+    if level.ok { out = out + pad_right(upper_ascii(level.value), 5) }
+    else { out = out + "     " }
+    out = out + " "
+    if module.ok { out = out + module.value + " " }
+    if msg.ok { out = out + msg.value }
+    mut cur := doc.first_child[doc.root]
+    while cur >= 0 {
+        key := key_text(&doc, cur)
+        if key != "ts" && key != "mod" && key != "level" && key != "msg" {
+            out = out + " " + key + "=" + value_text(&doc, cur)
+        }
+        cur = doc.next_sibling[cur]
+    }
+    out
+}
+
+pub fn view(input: string, query: &Query) -> []string {
+    lines := text.split(input, "\n")
+    mut matched: []string = []
+    for line in lines {
+        trimmed := text.trim(line)
+        if trimmed.len == 0 { continue }
+        if line_matches(trimmed, query) { matched.push(trimmed.clone()) }
+    }
+    mut start := 0
+    if query.tail > 0 && matched.len > query.tail { start = matched.len - query.tail }
+    mut rendered: []string = []
+    for i in start..matched.len {
+        rendered.push(render_line(matched[i]))
+    }
+    rendered
+}

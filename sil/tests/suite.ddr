@@ -1,0 +1,100 @@
+import std.json as json
+
+import ..src.sil as sil
+
+fn sample_doc() -> json.Doc {
+    json.Doc::parse_text("{\"user\":{\"name\":\"ada\",\"id\":7},\"items\":[{\"id\":5},{\"id\":7}],\"none\":null,\"ok\":true}")
+}
+
+fn segments_of(path: string) -> []sil.Segment {
+    match sil.parse_path(path) {
+        .Ok(segments) => { segments },
+        .Err(e) => { assert(e.len >= 0); assert(false); [] },
+    }
+}
+
+@test fn parse_path_reads_keys_and_indexes() {
+    segments := segments_of(".items[2].id")
+    assert(segments.len == 3)
+    assert(sil.describe(&segments) == ".items[2].id")
+}
+
+@test fn parse_path_accepts_identity_and_bare_first_key() {
+    assert(segments_of(".").len == 0)
+    assert(sil.describe(&segments_of("user.name")) == ".user.name")
+}
+
+@test fn parse_path_rejects_malformed_paths() {
+    assert(sil.parse_path("").is_err())
+    assert(sil.parse_path(".a..b").is_err())
+    assert(sil.parse_path(".a[x]").is_err())
+    assert(sil.parse_path(".a[").is_err())
+    assert(sil.parse_path(".a[1").is_err())
+    assert(sil.parse_path(".a.").is_err())
+    assert(sil.parse_path(".[0].").is_err())
+}
+
+@test fn select_walks_objects_and_arrays() {
+    doc := sample_doc()
+    name := sil.select(&doc, doc.root, &segments_of(".user.name"))
+    assert(name.ok)
+    assert(doc.as_str(name.node).value == "ada")
+
+    second := sil.select(&doc, doc.root, &segments_of(".items[1].id"))
+    assert(second.ok)
+    assert(doc.as_i64(second.node).value == 7)
+
+    flag := sil.select(&doc, doc.root, &segments_of(".ok"))
+    assert(flag.ok)
+    assert(doc.as_bool(flag.node).value)
+}
+
+@test fn select_reports_missing_keys_and_bad_types() {
+    doc := sample_doc()
+    missing := sil.select(&doc, doc.root, &segments_of(".user.nothing"))
+    assert(!missing.ok)
+    assert(missing.error == "no key \"nothing\" at .user")
+
+    typed := sil.select(&doc, doc.root, &segments_of(".user.name[0]"))
+    assert(!typed.ok)
+    assert(typed.error == "expected an array at .user.name")
+
+    index := sil.select(&doc, doc.root, &segments_of(".items[9]"))
+    assert(!index.ok)
+    assert(index.error == "index 9 out of bounds at .items")
+
+    root_type := sil.select(&doc, doc.root, &segments_of("[0]"))
+    assert(!root_type.ok)
+    assert(root_type.error == "expected an array at the document root")
+}
+
+@test fn render_pretty_indents_containers_and_quotes_strings() {
+    doc := json.Doc::parse_text("{\"a\":1,\"b\":[2,3],\"c\":{},\"d\":[]}")
+    assert(doc.ok)
+    assert(sil.render_pretty(&doc, doc.root) == "{\n  \"a\": 1,\n  \"b\": [\n    2,\n    3\n  ],\n  \"c\": {},\n  \"d\": []\n}")
+}
+
+@test fn render_pretty_handles_nested_objects() {
+    doc := json.Doc::parse_text("{\"x\":{\"y\":\"z\"}}")
+    assert(doc.ok)
+    assert(sil.render_pretty(&doc, doc.root) == "{\n  \"x\": {\n    \"y\": \"z\"\n  }\n}")
+}
+
+@test fn toml_input_converts_to_json_for_selection() {
+    converted := sil.toml_to_json("name = \"dunder\"\n[deps]\nhttp = \"pkg\"\n")
+    assert(converted.is_ok())
+    match converted {
+        .Ok(payload) => {
+            doc := json.Doc::parse_text(payload)
+            assert(doc.ok)
+            picked := sil.select(&doc, doc.root, &segments_of(".deps.http"))
+            assert(picked.ok)
+            assert(doc.as_str(picked.node).value == "pkg")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn toml_input_reports_parse_errors() {
+    assert(sil.toml_to_json("not toml at all").is_err())
+}

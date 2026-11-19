@@ -1,0 +1,170 @@
+capability network
+
+import std.bytes as bytes
+import std.json as json
+import std.net as net
+import std.parse as parse
+import std.text as text
+import sys
+
+pub struct Probe {
+    host: string,
+    port: u16,
+    open: bool,
+    latency_ms: i64,
+    error: i32,
+}
+
+pub fn parse_target(target: string) -> Result<(string, u16), string> {
+    mut sep := -1
+    for i in 0..target.len {
+        if target[i] == 58 { sep = i }
+    }
+    if sep < 0 { return .Err("missing ':port' in target " + target) }
+    mut host := target[0..sep]
+    if host.len > 1 && host[0] == 91 {
+        if host[host.len - 1] != 93 { return .Err("expected ']' closing IPv6 host in " + target) }
+        host = host[1..host.len - 1]
+    }
+    if host.len == 0 { return .Err("empty host in " + target) }
+    match parse.value<u16>(target[sep + 1..target.len]) {
+        .Ok(port) => { .Ok((host.clone(), port)) },
+        .Err(e) => { .Err(e) },
+    }
+}
+
+pub fn probe(host: string, port: u16, timeout_ms: i32) -> Probe {
+    started := sys.now_ms()
+    result := net.connect_host(host, port, timeout_ms)
+    elapsed := sys.now_ms() - started
+    if result.ok {
+        mut stream := result.stream
+        _ := stream.close()
+        return Probe { host: host.clone(), port: port, open: true, latency_ms: elapsed, error: 0 }
+    }
+    Probe { host: host.clone(), port: port, open: false, latency_ms: elapsed, error: result.error }
+}
+
+pub fn probe_targets(targets: &[]string, timeout_ms: i32) -> Result<[]Probe, string> {
+    mut probes: []Probe = []
+    for target in targets {
+        match parse_target(target) {
+            .Ok(pair) => { probes.push(probe(pair.0, pair.1, timeout_ms)) },
+            .Err(e) => { return .Err(e) },
+        }
+    }
+    .Ok(probes)
+}
+
+pub fn probe_ports(host: string, ports: &[]i32, timeout_ms: i32) -> []Probe {
+    mut probes: []Probe = []
+    for p in ports {
+        if p < 0 || p > 65535 { continue }
+        probes.push(probe(host, u16(p), timeout_ms))
+    }
+    probes
+}
+
+fn parse_port_text(t: string) -> Result<i32, string> {
+    match parse.value<i32>(t) {
+        .Ok(n) => {
+            if n < 0 || n > 65535 { return .Err("port out of range: " + t) }
+            .Ok(n)
+        },
+        .Err(e) => { .Err(e) },
+    }
+}
+
+pub fn parse_ports(spec: string) -> Result<[]i32, string> {
+    parts := text.split(spec, ",")
+    mut ports: []i32 = []
+    for part in parts {
+        t := text.trim(part)
+        if t.len == 0 { continue }
+        dash := text.find(t, "-")
+        if dash < 0 {
+            match parse_port_text(t) {
+                .Ok(p) => { ports.push(p) },
+                .Err(e) => { return .Err(e) },
+            }
+        } else {
+            match parse_port_text(t[0..dash]) {
+                .Ok(lo) => {
+                    match parse_port_text(t[dash + 1..t.len]) {
+                        .Ok(hi) => {
+                            top := hi + 1
+                            for p in lo..top { ports.push(p) }
+                        },
+                        .Err(e) => { return .Err(e) },
+                    }
+                },
+                .Err(e) => { return .Err(e) },
+            }
+        }
+    }
+    if ports.len == 0 { return .Err("no ports in spec") }
+    .Ok(ports)
+}
+
+pub fn count_closed(probes: &[]Probe) -> i32 {
+    mut closed := 0
+    for p in probes {
+        if !p.open { closed += 1 }
+    }
+    closed
+}
+
+fn pad_to(out: &mut []u8, s: string, width: i32) {
+    bytes.append_utf8(&mut out, s)
+    mut pad := width - s.len
+    for _ in 0..pad { out.push(b' ') }
+}
+
+pub fn render_table(probes: &[]Probe) -> string {
+    mut host_width := 4
+    for p in probes {
+        if p.host.len > host_width { host_width = p.host.len }
+    }
+    mut out: []u8 = []
+    pad_to(&mut out, "host", host_width)
+    bytes.append_utf8(&mut out, "  ")
+    pad_to(&mut out, "port", 5)
+    bytes.append_utf8(&mut out, " ")
+    pad_to(&mut out, "state", 6)
+    bytes.append_utf8(&mut out, "  latency_ms\n")
+    for p in probes {
+        pad_to(&mut out, p.host, host_width)
+        state := if p.open { "open  " } else { "closed" }
+        bytes.append_utf8(&mut out, f"  {p.port:5} {state}  ")
+        if p.open {
+            bytes.append_utf8(&mut out, p.latency_ms.str())
+        } else {
+            bytes.append_utf8(&mut out, "-")
+        }
+        bytes.append_utf8(&mut out, "\n")
+    }
+    bytes.decode(&out).value
+}
+
+pub fn render_json(probes: &[]Probe) -> string {
+    mut w := json.Writer::new()
+    w.array()
+    for p in probes {
+        w.object()
+        w.key("host")
+        w.string(p.host)
+        w.key("port")
+        w.unsigned(u64(p.port))
+        w.key("open")
+        w.boolean(p.open)
+        w.key("latency_ms")
+        w.integer(p.latency_ms)
+        w.key("error")
+        w.integer(i64(p.error))
+        w.end()
+    }
+    w.end()
+    done := w.finish()
+    if done.ok { return done.value }
+    "[]"
+}

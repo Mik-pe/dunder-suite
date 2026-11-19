@@ -1,0 +1,115 @@
+import std.json as json
+import std.text as text
+import sys
+
+import sil
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: sil [flags] PATH [FILE]")
+    _ := sys.eprint("  PATH   dot path like .user.name or .items[2].id")
+    _ := sys.eprint("  FILE   JSON (or TOML with -t); '-' or omitted reads stdin")
+    _ := sys.eprint("flags: -p --pretty   pretty-print containers")
+    _ := sys.eprint("       -r --raw      print string values unquoted")
+    _ := sys.eprint("       -t --toml     input is TOML, converted to JSON first")
+    _ := sys.eprint("       -l --lines    apply PATH to each JSONL line of the file")
+    return 2
+}
+
+fn print_value(doc: &json.Doc, node: i32, pretty: bool, raw: bool) {
+    kind := doc.kind(node)
+    if kind == .String {
+        value := doc.as_str(node)
+        if raw { print(value.value) }
+        else { print(json.quote(value.value)) }
+        return
+    }
+    if pretty && (kind == .Object || kind == .Array) {
+        print(sil.render_pretty(doc, node))
+        return
+    }
+    print(doc.raw_span(node))
+}
+
+fn main() -> i32 {
+    mut pretty := false
+    mut raw := false
+    mut as_toml := false
+    mut lines_mode := false
+    mut positional: []string = []
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-p" || a == "--pretty" { pretty = true }
+        else if a == "-r" || a == "--raw" { raw = true }
+        else if a == "-t" || a == "--toml" { as_toml = true }
+        else if a == "-l" || a == "--lines" { lines_mode = true }
+        else if a == "--" { }
+        else if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("sil: unknown flag " + a)
+            return 2
+        } else {
+            positional.push(a.clone())
+        }
+        i += 1
+    }
+    if positional.len == 0 || positional.len > 2 { return usage() }
+    path_arg := positional[0].clone()
+    mut file_arg := "-"
+    if positional.len == 2 { file_arg = positional[1].clone() }
+
+    mut segments: []sil.Segment = []
+    match sil.parse_path(path_arg) {
+        .Ok(parsed) => { segments = parsed },
+        .Err(e) => { _ := sys.eprint("sil: " + e); return 2 },
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("sil: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    mut payload := content.value
+    if as_toml {
+        match sil.toml_to_json(payload) {
+            .Ok(converted) => { payload = converted },
+            .Err(e) => { _ := sys.eprint("sil: " + e); return 1 },
+        }
+    }
+
+    if lines_mode {
+        parts := text.split(payload, "\n")
+        mut number := 0
+        for line in parts {
+            number += 1
+            trimmed := text.trim(line)
+            if trimmed.len == 0 { continue }
+            doc := json.Doc::parse_text(trimmed)
+            if !doc.ok {
+                _ := sys.eprint(f"sil: line {number}: {doc.error} at byte {doc.offset}")
+                return 1
+            }
+            picked := sil.select(&doc, doc.root, &segments)
+            if !picked.ok {
+                _ := sys.eprint(f"sil: line {number}: {picked.error}")
+                return 1
+            }
+            print_value(&doc, picked.node, pretty, raw)
+        }
+        return 0
+    }
+
+    doc := json.Doc::parse_text(payload)
+    if !doc.ok {
+        _ := sys.eprint(f"sil: {doc.error} at byte {doc.offset}")
+        return 1
+    }
+    picked := sil.select(&doc, doc.root, &segments)
+    if !picked.ok {
+        _ := sys.eprint("sil: " + picked.error)
+        return 1
+    }
+    print_value(&doc, picked.node, pretty, raw)
+    return 0
+}

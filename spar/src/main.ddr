@@ -1,0 +1,74 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import spar
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: spar view [FILE] [--level L] [--field k=v] [--has TEXT] [--tail N]")
+    _ := sys.eprint("  FILE   JSONL log file; '-' or omitted reads stdin")
+    _ := sys.eprint("  --level L     show L and above (debug/info/warn/error)")
+    _ := sys.eprint("  --field k=v   keep lines where field k equals v")
+    _ := sys.eprint("  --has TEXT    keep lines whose msg contains TEXT")
+    _ := sys.eprint("  --tail N      show only the last N matching lines")
+    return 2
+}
+
+fn main() -> i32 {
+    if sys.arg_count() < 2 { return usage() }
+    if sys.arg(1) != "view" { return usage() }
+
+    mut query := spar.all_lines()
+    mut file_arg := "-"
+    count := sys.arg_count()
+    mut i := 2
+    while i < count {
+        a := sys.arg(i)
+        if a == "--level" {
+            if i + 1 >= count { _ := sys.eprint("spar: missing value after --level"); return 2 }
+            i += 1
+            match spar.parse_level(sys.arg(i)) {
+                .Ok(level) => { query.min_level = level },
+                .Err(e) => { _ := sys.eprint("spar: " + e); return 2 },
+            }
+        } else if a == "--field" {
+            if i + 1 >= count { _ := sys.eprint("spar: missing value after --field"); return 2 }
+            i += 1
+            pair := sys.arg(i)
+            at := text.find(pair, "=")
+            if at <= 0 {
+                _ := sys.eprint("spar: --field expects k=v")
+                return 2
+            }
+            query.field_key = pair[0..at]
+            query.field_value = pair[at + 1..pair.len]
+        } else if a == "--has" {
+            if i + 1 >= count { _ := sys.eprint("spar: missing value after --has"); return 2 }
+            i += 1
+            query.message_contains = sys.arg(i)
+        } else if a == "--tail" {
+            if i + 1 >= count { _ := sys.eprint("spar: missing value after --tail"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 { _ := sys.eprint("spar: --tail must be positive"); return 2 }
+            query.tail = i32(n.value)
+        } else if text.starts_with(a, "-") && a.len > 1 && a != "-" {
+            _ := sys.eprint("spar: unknown flag " + a)
+            return 2
+        } else {
+            file_arg = a.clone()
+        }
+        i += 1
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("spar: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    for line in spar.view(content.value, &query) {
+        print(line)
+    }
+    return 0
+}

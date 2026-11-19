@@ -1,0 +1,169 @@
+capability filesystem
+
+import std.array as array
+import std.fs as fs
+import std.text as text
+import sys
+
+pub struct Options {
+    pattern: string,
+    roots: []string,
+    extensions: []string,
+    ignore_case: bool,
+    max_matches: i32,
+}
+
+pub struct Match {
+    path: string,
+    line: i32,
+    text: string,
+}
+
+struct Loaded {
+    path: string,
+    content: string,
+}
+
+struct ScanJob {
+    files: []Loaded,
+    pattern: string,
+    ignore_case: bool,
+    max_matches: i32,
+}
+
+pub fn default_options(move pattern: string) -> Options {
+    Options { pattern: pattern, roots: ["."], extensions: [], ignore_case: false, max_matches: 1000 }
+}
+
+fn is_hidden(name: string) -> bool {
+    name.len > 0 && name[0] == 46
+}
+
+fn has_allowed_extension(name: string, extensions: &[]string) -> bool {
+    if extensions.len == 0 { return true }
+    for ext in extensions {
+        if text.ends_with(name, "." + ext) { return true }
+    }
+    false
+}
+
+pub fn collect_files(root: string, extensions: &[]string, out: &mut []string, depth: i32) -> string {
+    if depth > 32 { return "directory nesting too deep at " + root }
+    listed := fs.list_dir(root)
+    if !listed.ok { return "cannot list " + root + ": " + sys.error_message(listed.error) }
+    for name in listed.entries {
+        if is_hidden(name) { continue }
+        path := if root == "." { name.clone() } else { root + "/" + name }
+        info := sys.metadata(path)
+        if !info.ok { continue }
+        kind := sys.file_kind(info)
+        if kind == .Directory {
+            err := collect_files(path, extensions, &mut out, depth + 1)
+            if err.len > 0 { return err }
+        } else if kind == .File {
+            if has_allowed_extension(name, extensions) { out.push(path.clone()) }
+        }
+    }
+    ""
+}
+
+fn ascii_lower(b: i32) -> i32 {
+    if b >= 65 && b <= 90 { return b + 32 }
+    b
+}
+
+pub fn line_matches(line: string, pattern: string, ignore_case: bool) -> bool {
+    if pattern.len == 0 { return true }
+    if !ignore_case { return text.find(line, pattern) >= 0 }
+    if line.len < pattern.len { return false }
+    last := line.len - pattern.len
+    mut start := 0
+    while start <= last {
+        mut i := 0
+        while i < pattern.len {
+            a := ascii_lower(line[start + i])
+            b := ascii_lower(pattern[i])
+            if a != b { break }
+            i += 1
+        }
+        if i == pattern.len { return true }
+        start += 1
+    }
+    false
+}
+
+fn scan_content(path: string, content: string, pattern: string, ignore_case: bool, max_matches: i32, out: &mut []Match) {
+    lines := text.split(content, "\n")
+    mut number := 0
+    for line in lines {
+        number += 1
+        if line_matches(line, pattern, ignore_case) {
+            out.push(Match { path: path.clone(), line: number, text: text.trim(line) })
+            if max_matches > 0 && out.len >= max_matches { return }
+        }
+    }
+}
+
+fn scan_group(move job: ScanJob) -> []Match {
+    mut out: []Match = []
+    for file in move job.files {
+        scan_content(file.path, file.content, job.pattern, job.ignore_case, job.max_matches, &mut out)
+        if job.max_matches > 0 && out.len >= job.max_matches { break }
+    }
+    out
+}
+
+fn compare_matches(a: &Match, b: &Match) -> Ordering {
+    if a.path < b.path { return .Less }
+    if a.path == b.path && a.line < b.line { return .Less }
+    if a.path == b.path && a.line == b.line { return .Equal }
+    .Greater
+}
+
+pub fn search(opts: &Options) -> Result<[]Match, string> {
+    mut paths: []string = []
+    for root in opts.roots {
+        err := collect_files(root, &opts.extensions, &mut paths, 0)
+        if err.len > 0 { return .Err(err) }
+    }
+    mut loaded: []Loaded = []
+    for path in paths {
+        content := sys.read_text(path)
+        if content.ok {
+            loaded.push(Loaded { path: path.clone(), content: content.value })
+            if opts.max_matches > 0 && loaded.len >= opts.max_matches { break }
+        }
+    }
+
+    mut merged: []Match = []
+    task scope jobs(4) {
+        mut ids: []TaskID<[]Match> = []
+        mut group_size := (loaded.len + 3) / 4
+        if group_size < 1 { group_size = 1 }
+        mut start := 0
+        while start < loaded.len {
+            mut end := start + group_size
+            if end > loaded.len { end = loaded.len }
+            mut group: []Loaded = []
+            for k in start..end { group.push(loaded[k].clone()) }
+            id := spawn jobs scan_group(ScanJob {
+                files: move group,
+                pattern: opts.pattern.clone(),
+                ignore_case: opts.ignore_case,
+                max_matches: opts.max_matches,
+            })
+            ids.push(id)
+            start = end
+        }
+        for id in ids {
+            batch := await! jobs(id)
+            array.append<Match>(&mut merged, &batch)
+        }
+    }
+    array.sort_by<Match>(&mut merged, compare_matches)
+    if opts.max_matches > 0 && merged.len > opts.max_matches {
+        mut excess := merged.len - opts.max_matches
+        for _ in 0..excess { _ := merged.pop() }
+    }
+    .Ok(merged)
+}

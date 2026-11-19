@@ -1,0 +1,125 @@
+capability filesystem
+
+import std.fs as fs
+import std.json as json
+import std.text as text
+import sys
+
+import ..src.spar as spar
+
+@test fn parse_level_round_trips_and_rejects_unknown() {
+    assert(spar.parse_level("debug").is_ok())
+    assert(spar.parse_level("info").is_ok())
+    assert(spar.parse_level("warn").is_ok())
+    assert(spar.parse_level("error").is_ok())
+    assert(spar.parse_level("verbose").is_err())
+    match spar.parse_level("warn") {
+        .Ok(level) => { assert(level == .Warn); assert(level.str() == "warn"); assert(spar.level_value(level) == 2) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn logger_writes_jsonl_with_fields_to_file() {
+    dir := fs.temp_dir("spar-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/app.log"
+
+    logger := spar.Logger::new("suite").with_file(path.clone())
+    logger.info("listening", &[spar.field_i64("port", 8080)])
+    logger.warn("slow request", &[spar.field_f64("ms", 1420.5)])
+    logger.error("upload rejected", &[spar.field_str("path", "../secrets"), spar.field_bool("retry", false)])
+
+    read := sys.read_text(path)
+    assert(read.ok)
+    lines := text.split(read.value, "\n")
+    assert(lines.len == 4)
+    assert(text.trim(lines[3]).len == 0)
+
+    first := json.Doc::parse_text(lines[0])
+    assert(first.ok)
+    assert(first.get_str(first.root, "mod").value == "suite")
+    assert(first.get_str(first.root, "level").value == "info")
+    assert(first.get_str(first.root, "msg").value == "listening")
+    assert(first.get_i64(first.root, "port").value == 8080)
+
+    third := json.Doc::parse_text(lines[2])
+    assert(third.ok)
+    assert(third.get_str(third.root, "level").value == "error")
+    assert(third.get_str(third.root, "path").value == "../secrets")
+    assert(!third.get_bool(third.root, "retry").value)
+}
+
+@test fn logger_honors_minimum_level() {
+    dir := fs.temp_dir("spar-suite-level-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/warn-only.log"
+
+    logger := spar.Logger::new("suite").with_level(.Warn).with_file(path.clone())
+    logger.debug("hidden", &[])
+    logger.info("hidden too", &[])
+    logger.warn("kept", &[])
+    logger.error("kept as well", &[])
+
+    read := sys.read_text(path)
+    assert(read.ok)
+    mut kept := 0
+    for line in text.split(read.value, "\n") {
+        if text.trim(line).len > 0 { kept += 1 }
+    }
+    assert(kept == 2)
+}
+
+@test fn view_filters_by_level_field_message_and_tail() {
+    input := "{\"ts\":1,\"mod\":\"a\",\"level\":\"info\",\"msg\":\"one\",\"k\":1}\n" +
+        "{\"ts\":2,\"mod\":\"a\",\"level\":\"warn\",\"msg\":\"two\",\"k\":2}\n" +
+        "{\"ts\":3,\"mod\":\"b\",\"level\":\"error\",\"msg\":\"three\",\"k\":1}\n" +
+        "garbage line\n" +
+        "\n"
+
+    all := spar.view(input, &spar.all_lines())
+    assert(all.len == 3)
+
+    mut warn_query := spar.all_lines()
+    warn_query.min_level = .Warn
+    warned := spar.view(input, &warn_query)
+    assert(warned.len == 2)
+    assert(text.find(warned[0], "two") >= 0)
+
+    mut field_query := spar.all_lines()
+    field_query.field_key = "k"
+    field_query.field_value = "1"
+    keyed := spar.view(input, &field_query)
+    assert(keyed.len == 2)
+
+    mut msg_query := spar.all_lines()
+    msg_query.message_contains = "thr"
+    matched := spar.view(input, &msg_query)
+    assert(matched.len == 1)
+    assert(text.find(matched[0], "three") >= 0)
+
+    mut tail_query := spar.all_lines()
+    tail_query.tail = 1
+    tailed := spar.view(input, &tail_query)
+    assert(tailed.len == 1)
+    assert(text.find(tailed[0], "three") >= 0)
+}
+
+@test fn view_renders_aligned_columns_and_extra_fields() {
+    input := "{\"ts\":1763640000,\"mod\":\"hylla\",\"level\":\"info\",\"msg\":\"listening\",\"port\":8080}\n"
+    lines := spar.view(input, &spar.all_lines())
+    assert(lines.len == 1)
+    assert(lines[0] == "1763640000 INFO  hylla listening port=8080")
+}
+
+@test fn value_text_renders_each_json_kind() {
+    doc := json.Doc::parse_text("{\"s\":\"x\",\"b\":true,\"n\":12,\"z\":null}")
+    assert(doc.ok)
+    assert(spar.value_text(&doc, doc.field(doc.root, "s")) == "x")
+    assert(spar.value_text(&doc, doc.field(doc.root, "b")) == "true")
+    assert(spar.value_text(&doc, doc.field(doc.root, "n")) == "12")
+    assert(spar.value_text(&doc, doc.field(doc.root, "z")) == "null")
+}

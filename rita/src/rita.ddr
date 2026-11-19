@@ -1,0 +1,188 @@
+import std.bytes as bytes
+import std.parse as parse
+
+pub struct Options {
+    width: i32,
+    buckets: i32,
+    labels: bool,
+}
+
+pub fn default_options() -> Options {
+    Options { width: 40, buckets: 8, labels: false }
+}
+
+fn is_separator(b: i32) -> bool {
+    b == 32 || b == 9 || b == 10 || b == 13 || b == 44
+}
+
+pub fn parse_numbers(input: string) -> Result<[]f64, string> {
+    mut values: []f64 = []
+    mut start := -1
+    end := input.len + 1
+    for i in 0..end {
+        at_end := i == input.len
+        if at_end || is_separator(input[i]) {
+            if start >= 0 {
+                token := input[start..i]
+                match parse.value<f64>(token) {
+                    .Ok(v) => {
+                        if !v.is_finite() {
+                            return .Err("not a finite number: " + token)
+                        }
+                        values.push(v)
+                    },
+                    .Err(e) => { return .Err(e) },
+                }
+                start = -1
+            }
+        } else if start < 0 {
+            start = i
+        }
+    }
+    if values.len == 0 { return .Err("no numbers found in input") }
+    .Ok(values)
+}
+
+pub fn min_value(values: &[]f64) -> f64 {
+    assert(values.len > 0)
+    mut best := values[0]
+    for i in 1..values.len {
+        if values[i] < best { best = values[i] }
+    }
+    best
+}
+
+pub fn max_value(values: &[]f64) -> f64 {
+    assert(values.len > 0)
+    mut best := values[0]
+    for i in 1..values.len {
+        if values[i] > best { best = values[i] }
+    }
+    best
+}
+
+fn clamp_width(width: i32) -> i32 {
+    if width < 1 { return 1 }
+    if width > 200 { return 200 }
+    width
+}
+
+fn clamp_buckets(buckets: i32) -> i32 {
+    if buckets < 1 { return 1 }
+    if buckets > 64 { return 64 }
+    buckets
+}
+
+fn label_width(values: &[]f64) -> i32 {
+    mut widest := 0
+    for v in values {
+        n := v.str().len
+        if n > widest { widest = n }
+    }
+    widest
+}
+
+fn append_padded(out: &mut []u8, text: string, width: i32) {
+    mut padding := width - text.len
+    for _ in 0..padding { out.push(b' ') }
+    bytes.append_utf8(&mut out, text)
+}
+
+fn append_bar(out: &mut []u8, blocks: i32) {
+    for _ in 0..blocks { bytes.append_utf8(&mut out, "█") }
+}
+
+pub fn format_edge(v: f64) -> string {
+    a := if v < 0.0 { -v } else { v }
+    if a > 1000000000000000.0 { return v.str() }
+    negative := v < 0.0
+    cents := i64(a * 100.0 + 0.5)
+    whole := cents / 100
+    frac := cents % 100
+    if !negative && whole == 0 && frac == 0 { return "0" }
+    sign := if negative { "-" } else { "" }
+    if frac == 0 { return sign + whole.str() }
+    if frac % 10 == 0 { return sign + whole.str() + "." + (frac / 10).str() }
+    sign + whole.str() + "." + f"{frac:02}"
+}
+
+pub fn bar_chart(values: &[]f64, opts: &Options) -> string {
+    assert(values.len > 0)
+    width := clamp_width(opts.width)
+    mut hi := max_value(values)
+    if hi <= 0.0 { hi = 1.0 }
+    labels := label_width(values)
+    mut out: []u8 = []
+    for v in values {
+        append_padded(&mut out, v.str(), labels)
+        bytes.append_utf8(&mut out, " |")
+        mut blocks := i32(v / hi * f64(width) + 0.5)
+        if v > 0.0 && blocks < 1 { blocks = 1 }
+        if blocks > width { blocks = width }
+        append_bar(&mut out, blocks)
+        bytes.append_utf8(&mut out, "\n")
+    }
+    bytes.decode(&out).value
+}
+
+pub fn histogram(values: &[]f64, opts: &Options) -> string {
+    assert(values.len > 0)
+    width := clamp_width(opts.width)
+    buckets := clamp_buckets(opts.buckets)
+    lo := min_value(values)
+    mut hi := max_value(values)
+    if lo == hi { hi = lo + 1.0 }
+    mut counts := parse_zero_counts(buckets)
+    for v in values {
+        mut slot := i32((v - lo) / (hi - lo) * f64(buckets))
+        if slot < 0 { slot = 0 }
+        if slot >= buckets { slot = buckets - 1 }
+        counts[slot] = counts[slot] + 1
+    }
+    mut busiest := 0
+    for c in counts {
+        if c > busiest { busiest = c }
+    }
+    step := (hi - lo) / f64(buckets)
+    mut out: []u8 = []
+    for k in 0..buckets {
+        edge_a := lo + step * f64(k)
+        edge_b := lo + step * f64(k + 1)
+        label := format_edge(edge_a) + ".." + format_edge(edge_b)
+        bytes.append_utf8(&mut out, "  ")
+        bytes.append_utf8(&mut out, label)
+        bytes.append_utf8(&mut out, " |")
+        mut blocks := 0
+        if busiest > 0 { blocks = i32(f64(counts[k]) / f64(busiest) * f64(width) + 0.5) }
+        if counts[k] > 0 && blocks < 1 { blocks = 1 }
+        if blocks > width { blocks = width }
+        append_bar(&mut out, blocks)
+        bytes.append_utf8(&mut out, "\n")
+    }
+    bytes.decode(&out).value
+}
+
+fn parse_zero_counts(buckets: i32) -> []i32 {
+    mut counts: []i32 = []
+    for _ in 0..buckets { counts.push(0) }
+    counts
+}
+
+pub fn sparkline(values: &[]f64) -> string {
+    assert(values.len > 0)
+    levels: []string = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+    lo := min_value(values)
+    hi := max_value(values)
+    mut out: []u8 = []
+    for v in values {
+        if lo == hi {
+            bytes.append_utf8(&mut out, levels[3])
+            continue
+        }
+        mut idx := i32((v - lo) / (hi - lo) * 7.0 + 0.5)
+        if idx < 0 { idx = 0 }
+        if idx > 7 { idx = 7 }
+        bytes.append_utf8(&mut out, levels[idx])
+    }
+    bytes.decode(&out).value
+}
