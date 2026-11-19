@@ -1,0 +1,82 @@
+capability filesystem
+
+import std.bytes as bytes
+import std.crypto as crypto
+import std.fs as fs
+import sys
+
+import ..src.stempel as stempel
+
+fn write_file(path: string, content: string) {
+    _ := sys.write_text(path, content)
+}
+
+fn direct_hmac_hex(key: string, content: string) -> string {
+    mut key_bytes: []u8 = []
+    bytes.append_utf8(&mut key_bytes, key)
+    mut data: []u8 = []
+    bytes.append_utf8(&mut data, content)
+    bytes.hex_u8(&crypto.hmac_sha256(&key_bytes, &data))
+}
+
+@test fn hmac_hex_matches_direct_crypto_call_and_is_64_hex_chars() {
+    dir := fs.temp_dir("stempel-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    a := root + "/msg.txt"
+    write_file(a, "the quick brown fox\n")
+    match stempel.hmac_hex("secret-key", a) {
+        .Ok(hex) => {
+            assert(hex.len == 64)
+            assert(hex == direct_hmac_hex("secret-key", "the quick brown fox\n"))
+        },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn hmac_hex_errors_on_missing_file() {
+    dir := fs.temp_dir("stempel-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    assert(stempel.hmac_hex("k", root + "/gone.bin").is_err())
+}
+
+@test fn verify_hex_accepts_and_rejects() {
+    dir := fs.temp_dir("stempel-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    a := root + "/msg.txt"
+    write_file(a, "payload")
+    good := direct_hmac_hex("key1", "payload")
+    wrong := direct_hmac_hex("key2", "payload")
+
+    match stempel.verify_hex("key1", a, good) {
+        .Ok(v) => { assert(v) },
+        .Err(_) => { assert(false) },
+    }
+    match stempel.verify_hex("key1", a, wrong) {
+        .Ok(v) => { assert(!v) },
+        .Err(_) => { assert(false) },
+    }
+    match stempel.verify_hex("key2", a, wrong) {
+        .Ok(v) => { assert(v) },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn verify_hex_rejects_bad_hex_and_missing_files() {
+    dir := fs.temp_dir("stempel-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    a := root + "/msg.txt"
+    write_file(a, "payload")
+    assert(stempel.verify_hex("key1", a, "nothex").is_err())
+    assert(stempel.verify_hex("key1", root + "/gone.bin", "00").is_err())
+}

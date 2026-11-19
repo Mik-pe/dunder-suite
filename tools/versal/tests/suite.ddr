@@ -1,0 +1,31 @@
+import ..src.versal as versal
+
+@test fn upper_and_lower_fold_ascii_only() {
+    assert(versal.upper_ascii("hello world") == "HELLO WORLD")
+    assert(versal.upper_ascii("MiXeD 123!") == "MIXED 123!")
+    assert(versal.lower_ascii("HELLO WORLD") == "hello world")
+    assert(versal.lower_ascii("MiXeD 123!") == "mixed 123!")
+}
+
+@test fn non_ascii_passes_through_unchanged() {
+    assert(versal.upper_ascii("åäö") == "åäö")
+    assert(versal.lower_ascii("ÅÄÖ") == "ÅÄÖ")
+    assert(versal.upper_ascii("héllo 🌍") == "HéLLO 🌍")
+    assert(versal.upper_ascii("én å") == "éN å")
+    assert(versal.title_ascii("åäö") == "åäö")
+}
+
+@test fn title_ascii_capitalizes_each_word() {
+    assert(versal.title_ascii("hello world") == "Hello World")
+    assert(versal.title_ascii("HELLO WORLD") == "Hello World")
+    assert(versal.title_ascii("mIxEd cAsE") == "Mixed Case")
+    assert(versal.title_ascii("a-b c2d") == "A-B C2d")
+    assert(versal.title_ascii("") == "")
+}
+
+@test fn to_lines_feeds_conversion() {
+    lines := versal.to_lines("abc\nDEF\n")
+    assert(lines.len == 2)
+    assert(versal.upper_ascii(lines[0].clone()) == "ABC")
+    assert(versal.lower_ascii(lines[1].clone()) == "def")
+}

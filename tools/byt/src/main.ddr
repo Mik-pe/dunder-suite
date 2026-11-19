@@ -1,0 +1,62 @@
+import std.text as text
+import sys
+
+import byt
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: byt [--dry] OLD NEW PATH...")
+    _ := sys.eprint("  OLD    text to replace in each file NAME (first occurrence)")
+    _ := sys.eprint("  NEW    replacement text")
+    _ := sys.eprint("  PATH   existing file or directory path whose filename contains OLD")
+    _ := sys.eprint("  --dry  print `old -> new` without renaming")
+    _ := sys.eprint("  only words starting with `--` are flags, so OLD/NEW may start with `-`")
+    _ := sys.eprint("paths whose filename has no match are skipped silently")
+    return 2
+}
+
+fn main() -> i32 {
+    mut dry := false
+    mut words: []string = []
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--dry" {
+            dry = true
+        } else if text.starts_with(a, "--") && a.len > 2 {
+            _ := sys.eprint("byt: unknown flag " + a)
+            return 2
+        } else {
+            words.push(a.clone())
+        }
+        i += 1
+    }
+    if words.len < 3 { return usage() }
+    old := words[0].clone()
+    new := words[1].clone()
+
+    mut status := 0
+    for idx in 2..words.len {
+        path := words[idx].clone()
+        info := sys.metadata(path)
+        if !info.ok { continue }
+        match byt.replace_in_filename(path, old, new) {
+            .Ok(dest) => {
+                if dest.len == 0 { continue }
+                if dry {
+                    print(path + " -> " + dest)
+                } else {
+                    renamed := sys.rename(path, dest)
+                    if renamed.ok {
+                        print(path + " -> " + dest)
+                    } else {
+                        _ := sys.eprint("byt: cannot rename " + path + ": " + sys.error_message(renamed.error))
+                        status = 1
+                    }
+                }
+            },
+            .Err(e) => { _ := sys.eprint("byt: " + e); return 2 },
+        }
+    }
+    return status
+}

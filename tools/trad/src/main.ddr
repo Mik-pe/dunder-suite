@@ -1,0 +1,48 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import trad
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: trad [-d N] [PATH]")
+    _ := sys.eprint("  -d N    maximum depth below PATH (default 4, max 64)")
+    _ := sys.eprint("  PATH    directory or file to draw (default: .)")
+    _ := sys.eprint("hidden entries are skipped; directories get a trailing /")
+    return 2
+}
+
+fn main() -> i32 {
+    mut depth := 4
+    mut path := ""
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-d" {
+            if i + 1 >= count { _ := sys.eprint("trad: missing value after -d"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 0 || n.value > 64 {
+                _ := sys.eprint("trad: -d must be 0..64")
+                return 2
+            }
+            depth = i32(n.value)
+        } else if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("trad: unknown flag " + a)
+            return 2
+        } else if path.len == 0 {
+            path = a.clone()
+        } else {
+            _ := sys.eprint("trad: unexpected argument " + a)
+            return 2
+        }
+        i += 1
+    }
+    if path.len == 0 { path = "." }
+    match trad.render_tree(path, depth) {
+        .Ok(tree) => { print(tree) },
+        .Err(e) => { _ := sys.eprint("trad: " + e); return 1 },
+    }
+    return 0
+}

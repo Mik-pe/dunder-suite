@@ -1,0 +1,37 @@
+import std.text as text
+
+pub fn to_lines(content: string) -> []string {
+    mut lines: []string = []
+    parts := text.split(content, "\n")
+    last := parts.len - 1
+    mut i := 0
+    for part in parts {
+        if !(i == last && part.len == 0) {
+            lines.push(part.clone())
+        }
+        i += 1
+    }
+    lines
+}
+
+pub fn pad_number(n: i32, width: i32) -> string {
+    digits := n.str()
+    mut out := digits.clone()
+    mut len := digits.len
+    while len < width {
+        out = " " + out
+        len += 1
+    }
+    out
+}
+
+pub fn number_lines(lines: &[]string, start: i32, width: i32) -> string {
+    mut out := ""
+    mut n := start
+    for line in lines {
+        if out.len > 0 { out = out + "\n" }
+        out = out + pad_number(n, width) + "  " + line
+        n += 1
+    }
+    out
+}

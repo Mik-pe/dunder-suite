@@ -1,0 +1,28 @@
+import std.bytes as bytes
+import std.crypto as crypto
+import sys
+
+// HMAC-SHA256 signer. Keys are UTF-8 bytes of the passphrase argument; data
+// is the raw content of the file. Comparisons in verify_hex go through
+// crypto.equal on decoded bytes, which is constant-time.
+
+pub fn hmac_hex(key: string, path: string) -> Result<string, string> {
+    data := sys.read_u8(path)
+    if !data.ok { return .Err("cannot read " + path.clone() + ": " + sys.error_message(data.error)) }
+    mut key_bytes: []u8 = []
+    bytes.append_utf8(&mut key_bytes, key)
+    .Ok(bytes.hex_u8(&crypto.hmac_sha256(&key_bytes, &data.value)))
+}
+
+pub fn verify_hex(key: string, path: string, expected: string) -> Result<bool, string> {
+    want := crypto.decode_hex(expected)
+    if !want.ok { return .Err("expected value is not valid hex: '" + expected.clone() + "'") }
+    match hmac_hex(key, path) {
+        .Ok(actual) => {
+            got := crypto.decode_hex(actual)
+            if !got.ok { return .Err("internal error: hmac did not decode as hex") }
+            .Ok(crypto.equal(&got.value, &want.value))
+        },
+        .Err(e) => { .Err(e) },
+    }
+}

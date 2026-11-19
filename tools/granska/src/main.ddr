@@ -1,0 +1,42 @@
+import std.text as text
+import sys
+
+import granska
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: granska PATH...")
+    _ := sys.eprint("  recursively scan .ddr/.toml/.md/.txt files (hidden dirs skipped)")
+    _ := sys.eprint("  for whole-word TODO/FIXME/XXX/HACK markers, ASCII case-insensitive")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut paths: []string = []
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--help" || a == "-h" { return usage() }
+        if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("granska: unknown flag " + a)
+            return 2
+        }
+        paths.push(a.clone())
+        i += 1
+    }
+    if paths.len == 0 { return usage() }
+
+    match granska.scan_paths(&paths) {
+        .Ok(markers) => {
+            for m in markers {
+                print(f"{m.path}:{m.line}: {m.text}")
+            }
+            print(f"{markers.len} markers in {granska.count_files(&markers)} files")
+        },
+        .Err(e) => {
+            _ := sys.eprint("granska: " + e)
+            return 1
+        },
+    }
+    return 0
+}

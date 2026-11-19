@@ -1,0 +1,39 @@
+import std.text as text
+
+pub fn to_lines(content: string) -> []string {
+    mut lines: []string = []
+    parts := text.split(content, "\n")
+    last := parts.len - 1
+    mut i := 0
+    for part in parts {
+        if !(i == last && part.len == 0) {
+            lines.push(part.clone())
+        }
+        i += 1
+    }
+    lines
+}
+
+pub fn reverse_lines(lines: &[]string) -> []string {
+    mut out: []string = []
+    mut i := lines.len - 1
+    while i >= 0 {
+        out.push(lines[i].clone())
+        i -= 1
+    }
+    out
+}
+
+pub fn reverse_runes(s: string) -> string {
+    mut parts: []string = []
+    for r in s.runes() {
+        parts.push(r.str())
+    }
+    mut out := ""
+    mut i := parts.len - 1
+    while i >= 0 {
+        out = out + parts[i].clone()
+        i -= 1
+    }
+    out
+}

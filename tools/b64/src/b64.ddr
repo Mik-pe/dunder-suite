@@ -1,0 +1,83 @@
+import std.bytes as bytes
+import std.text as text
+
+// Standard base64 alphabet (RFC 4648 §4) with '=' padding. Implemented by
+// hand — the Dunder 0.5.0 stdlib has no base64 module.
+
+fn alphabet() -> string {
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+}
+
+fn digit(table: &string, v: i32) -> string {
+    table[v..v + 1]
+}
+
+fn value_of(table: &string, b: i32) -> i32 {
+    mut pos := 0
+    for t in table.bytes() {
+        if i32(t) == b { return pos }
+        pos += 1
+    }
+    -1
+}
+
+pub fn encode(data: &[]u8) -> string {
+    mut table := alphabet()
+    mut out := ""
+    mut i := 0
+    n := data.len
+    while i + 3 <= n {
+        v := i32(data[i]) * 65536 + i32(data[i + 1]) * 256 + i32(data[i + 2])
+        out = out + digit(&table, v / 262144)
+        out = out + digit(&table, (v / 4096) % 64)
+        out = out + digit(&table, (v / 64) % 64)
+        out = out + digit(&table, v % 64)
+        i += 3
+    }
+    left := n - i
+    if left == 1 {
+        v := i32(data[i]) * 65536
+        out = out + digit(&table, v / 262144)
+        out = out + digit(&table, (v / 4096) % 64)
+        out = out + "=="
+    } else if left == 2 {
+        v := i32(data[i]) * 65536 + i32(data[i + 1]) * 256
+        out = out + digit(&table, v / 262144)
+        out = out + digit(&table, (v / 4096) % 64)
+        out = out + digit(&table, (v / 64) % 64)
+        out = out + "="
+    }
+    out
+}
+
+pub fn decode(s: string) -> Result<[]u8, string> {
+    mut table := alphabet()
+    if s.len % 4 != 0 {
+        return .Err("invalid base64 length " + s.len.str() + " (must be a multiple of 4)")
+    }
+    raw := s.bytes()
+    mut out: []u8 = []
+    groups := s.len / 4
+    for g in 0..groups {
+        last := g == groups - 1
+        mut v := 0
+        mut pad := 0
+        for k in 0..4 {
+            b := i32(raw[g * 4 + k])
+            if b == 61 {
+                if !last || k < 2 { return .Err("misplaced '=' padding") }
+                pad += 1
+                v *= 64
+            } else {
+                val := value_of(&table, b)
+                if val < 0 { return .Err("invalid base64 character in input") }
+                if pad > 0 { return .Err("data after '=' padding") }
+                v = v * 64 + val
+            }
+        }
+        out.push(u8(v / 65536))
+        if pad < 2 { out.push(u8((v / 256) % 256)) }
+        if pad < 1 { out.push(u8(v % 256)) }
+    }
+    .Ok(out)
+}

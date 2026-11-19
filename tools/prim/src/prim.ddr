@@ -1,0 +1,71 @@
+// prim — prime utilities on i64 (trial division).
+
+pub fn is_prime(n: i64) -> bool {
+    if n < 2 { return false }
+    if n < 4 { return true }
+    if n % 2 == 0 { return false }
+    mut i: i64 = 3
+    while i * i <= n {
+        if n % i == 0 { return false }
+        i += 2
+    }
+    true
+}
+
+pub fn factorize(n: i64) -> []i64 {
+    mut factors: []i64 = []
+    mut rest := n
+    mut d: i64 = 2
+    while d * d <= rest {
+        while rest % d == 0 {
+            f := d
+            factors.push(f)
+            rest = rest / d
+        }
+        d += 1
+    }
+    if rest > 1 {
+        last := rest
+        factors.push(last)
+    }
+    factors
+}
+
+pub fn format_factors(factors: &[]i64) -> string {
+    if factors.len == 0 { return "1" }
+    mut out := ""
+    mut i := 0
+    while i < factors.len {
+        mut run := 1
+        while i + run < factors.len && factors[i + run] == factors[i] { run += 1 }
+        if out.len > 0 { out = out + " * " }
+        out = out + factors[i].str()
+        if run > 1 { out = out + "^" + run.str() }
+        i += run
+    }
+    out
+}
+
+pub fn nth_prime(n: i32) -> i64 {
+    if n < 1 { return -1 }
+    mut found := 0
+    mut candidate: i64 = 1
+    while found < n {
+        candidate += 1
+        if is_prime(candidate) { found += 1 }
+    }
+    candidate
+}
+
+pub fn first_primes(n: i32) -> []i64 {
+    mut out: []i64 = []
+    mut candidate: i64 = 2
+    while out.len < n {
+        if is_prime(candidate) {
+            p := candidate
+            out.push(p)
+        }
+        candidate += 1
+    }
+    out
+}

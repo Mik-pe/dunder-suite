@@ -1,0 +1,98 @@
+import std.text as text
+import sys
+
+import lagra
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: lagra get KEY [--file F]        print the value stored under KEY")
+    _ := sys.eprint("       lagra set KEY VALUE [--file F]  store VALUE under KEY (overwrites)")
+    _ := sys.eprint("       lagra list [--file F]           print all keys, sorted")
+    _ := sys.eprint("       lagra rm KEY [--file F]         remove KEY from the store")
+    _ := sys.eprint("default store file: ./lager.json (created on first set)")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    command := sys.arg(1)
+    if command != "get" && command != "set" && command != "list" && command != "rm" {
+        return usage()
+    }
+
+    mut path := "./lager.json"
+    mut positional: []string = []
+    mut i := 2
+    while i < count {
+        a := sys.arg(i)
+        if a == "--file" {
+            if i + 1 >= count { _ := sys.eprint("lagra: missing value after --file"); return 2 }
+            i += 1
+            path = sys.arg(i)
+        } else if text.starts_with(a, "-") && a.len > 1 && a != "-" {
+            _ := sys.eprint("lagra: unknown flag " + a)
+            return 2
+        } else {
+            positional.push(a.clone())
+        }
+        i += 1
+    }
+
+    if command == "set" {
+        if positional.len != 2 { return usage() }
+        mut failure := ""
+        match lagra.load(path.clone()) {
+            .Ok(store) => {
+                mut s := store
+                match s.set(positional[0].clone(), positional[1].clone()) {
+                    .Ok => {
+                        match lagra.save(&s, path.clone()) { .Ok => {}, .Err(e) => { failure = e } }
+                    },
+                    .Err(e) => { failure = e },
+                }
+            },
+            .Err(e) => { failure = e },
+        }
+        if failure.len > 0 { _ := sys.eprint("lagra: " + failure); return 1 }
+        return 0
+    }
+
+    if command == "get" {
+        if positional.len != 1 { return usage() }
+        match lagra.load(path.clone()) {
+            .Ok(store) => {
+                match store.get(positional[0].clone()) {
+                    .Ok(value) => { print(value) },
+                    .Err(e) => { _ := sys.eprint("lagra: " + e); return 1 },
+                }
+            },
+            .Err(e) => { _ := sys.eprint("lagra: " + e); return 1 },
+        }
+        return 0
+    }
+
+    if command == "list" {
+        if positional.len != 0 { return usage() }
+        match lagra.load(path.clone()) {
+            .Ok(store) => { for name in store.keys_sorted() { print(name) } },
+            .Err(e) => { _ := sys.eprint("lagra: " + e); return 1 },
+        }
+        return 0
+    }
+
+    if positional.len != 1 { return usage() }
+    mut rm_failure := ""
+    match lagra.load(path.clone()) {
+        .Ok(store) => {
+            mut s := store
+            if !s.remove(positional[0].clone()) {
+                rm_failure = "no key " + positional[0]
+            } else {
+                match lagra.save(&s, path.clone()) { .Ok => {}, .Err(e) => { rm_failure = e } }
+            }
+        },
+        .Err(e) => { rm_failure = e },
+    }
+    if rm_failure.len > 0 { _ := sys.eprint("lagra: " + rm_failure); return 1 }
+    return 0
+}

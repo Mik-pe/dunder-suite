@@ -1,0 +1,49 @@
+import sys
+
+import vand
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: vand [-c] [FILE]")
+    _ := sys.eprint("  reverse the order of the lines (default)")
+    _ := sys.eprint("  -c   reverse the characters (runes) of each line, keeping order")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut chars := false
+    mut file_arg := "-"
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-c" {
+            chars = true
+        } else if a == "--help" || a == "-h" {
+            return usage()
+        } else if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("vand: unknown flag " + a)
+            return 2
+        } else {
+            file_arg = a.clone()
+        }
+        i += 1
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("vand: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    lines := vand.to_lines(content.value)
+    if chars {
+        for line in lines {
+            print(vand.reverse_runes(line))
+        }
+    } else {
+        for line in vand.reverse_lines(&lines) {
+            print(line)
+        }
+    }
+    return 0
+}

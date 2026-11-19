@@ -1,0 +1,30 @@
+import ..src.fyll as fyll
+
+@test fn pad_line_pads_by_mode_in_runes() {
+    assert(fyll.pad_line("ab", 5, "left", false) == "ab   ")
+    assert(fyll.pad_line("ab", 5, "right", false) == "   ab")
+    assert(fyll.pad_line("ab", 5, "center", false) == " ab  ")
+    assert(fyll.pad_line("abc", 3, "left", false) == "abc")
+}
+
+@test fn pad_line_is_rune_aware_not_bytes() {
+    assert(fyll.pad_line("åäö", 5, "left", false) == "åäö  ")
+    assert(fyll.rune_len("åäö") == 3)
+    assert(fyll.rune_len("🌍x") == 2)
+    assert(fyll.pad_line("🌍x", 4, "right", false) == "  🌍x")
+    assert(fyll.pad_line("å", 3, "center", false) == " å ")
+}
+
+@test fn pad_line_truncates_when_asked() {
+    assert(fyll.pad_line("abcdef", 3, "left", true) == "abc")
+    assert(fyll.pad_line("åäö", 2, "left", true) == "åä")
+    assert(fyll.pad_line("🌍🌍", 1, "left", true) == "🌍")
+    assert(fyll.pad_line("ab", 5, "left", true) == "ab   ")
+}
+
+@test fn pad_line_edge_cases() {
+    assert(fyll.pad_line("", 3, "left", false) == "   ")
+    assert(fyll.pad_line("", 3, "center", false) == "   ")
+    assert(fyll.pad_line("abcdef", 3, "right", false) == "abcdef")
+    assert(fyll.pad_line("x", 1, "center", false) == "x")
+}

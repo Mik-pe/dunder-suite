@@ -1,0 +1,20 @@
+import std.bytes as bytes
+
+// Rotate ASCII letters in `text` by `n` positions (any i32; normalized mod 26).
+// Non-letters — including multi-byte UTF-8 sequences — pass through untouched,
+// because every byte of them is either < 65, between 90..97, or >= 128.
+pub fn rotate(text: string, n: i32) -> string {
+    mut norm := n % 26
+    if norm < 0 { norm += 26 }
+    mut out: []u8 = []
+    for b in text.bytes() {
+        mut v := i32(b)
+        if v >= 97 && v <= 122 {
+            v = 97 + (v - 97 + norm) % 26
+        } else if v >= 65 && v <= 90 {
+            v = 65 + (v - 65 + norm) % 26
+        }
+        out.push(u8(v))
+    }
+    bytes.decode(&out).value
+}

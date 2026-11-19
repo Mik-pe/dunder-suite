@@ -1,0 +1,16 @@
+import std.text as text
+
+pub fn replace_in_filename(path: string, old: string, new: string) -> Result<string, string> {
+    if old.len == 0 { return .Err("OLD must not be empty") }
+    mut slash := -1
+    for i in 0..path.len {
+        if path[i] == 47 { slash = i }
+    }
+    dir := if slash < 0 { "" } else { path[0..slash] }
+    name := if slash < 0 { path.clone() } else { path[slash + 1..path.len] }
+    at := text.find(name, old)
+    if at < 0 { return .Ok("") }
+    renamed := name[0..at] + new + name[at + old.len..name.len]
+    if slash < 0 { return .Ok(renamed) }
+    .Ok(dir + "/" + renamed)
+}

@@ -4,9 +4,10 @@ Ten CLIs and libraries written in [Dunder](../dunder), usable for different
 purposes and doubling as real-world test programs for the language, compiler
 and standard library — the same role Hundmat plays for graphics and servers.
 
-**Status:** all ten tools implemented at **v0.1.0** with passing tests
-(232 suite tests green against the installed 0.5.0 compiler). Implementation
-feedback lives in [DUNDER-ISSUES.md](DUNDER-ISSUES.md).
+**Status:** ten primary tools at **v0.1.0** (232 tests) plus **fifty
+utilities** under `tools/` (693 tests) — all green against the installed
+Dunder 0.5.0 compiler (925 tests total). Implementation feedback lives in
+[DUNDER-ISSUES.md](DUNDER-ISSUES.md); conventions in [AGENT-GUIDE.md](AGENT-GUIDE.md).
 
 ## Catalogs
 
@@ -25,6 +26,65 @@ feedback lives in [DUNDER-ISSUES.md](DUNDER-ISSUES.md).
 
 The `http` and `http_client` packages are vendored under [vendor/](vendor/) so
 this repo builds self-contained: `git clone` + `dunder test` just works.
+
+## The fifty — `tools/`
+
+Fifty smaller utilities, each with the same layout and testing bar as the ten
+above. Built in five parallel batches (text, math, encoding/crypto, data
+formats, files/system); **693 tests, 0 failures** across all fifty.
+
+### Text (batch T)
+
+| Tool | Purpose | Tool | Purpose |
+| --- | --- | --- | --- |
+| [ord](tools/ord/) | wc-style line/word/byte counts | [slug](tools/slug/) | slugify with unicode stripping |
+| [klipp](tools/klipp/) | cut-style field extractor | [versal](tools/versal/) | ASCII upper/lower/title case |
+| [unik](tools/unik/) | collapse consecutive duplicates | [radbryt](tools/radbryt/) | word wrap to a width |
+| [vand](tools/vand/) | reverse lines or runes | [numrera](tools/numrera/) | number lines (nl-style) |
+| [fyll](tools/fyll/) | pad/center/truncate lines | [granska](tools/granska/) | TODO/FIXME marker scanner |
+
+### Math (batch M)
+
+| Tool | Purpose | Tool | Purpose |
+| --- | --- | --- | --- |
+| [rakna](tools/rakna/) | integer expression evaluator | [slump](tools/slump/) | random hex/int/pick |
+| [bas](tools/bas/) | base converter (2/8/10/16) | [hexdump](tools/hexdump/) | offset+hex+ascii dump |
+| [prim](tools/prim/) | prime check/factor/nth/list | [procent](tools/procent/) | percentage math |
+| [stats](tools/stats/) | mean/median/stdev summaries | [tarning](tools/taring/) | dice notation roller |
+| [fibo](tools/fibo/) | fibonacci list/nth | [omvandla](tools/omvandla/) | unit converter |
+
+### Encoding & crypto (batch E)
+
+| Tool | Purpose | Tool | Purpose |
+| --- | --- | --- | --- |
+| [rot13](tools/rot13/) | Caesar/rot-N cipher | [gom](tools/gom/) | AES-256-GCM file encryption |
+| [b64](tools/b64/) | base64 encode/decode | [slumpord](tools/slumpord/) | passphrase generator |
+| [urlkod](tools/urlkod/) | percent-encoding | [skillnad](tools/skillnad/) | line diff (LCS) |
+| [kolla](tools/kolla/) | sha256 checksums + verify | [citera](tools/citera/) | JSON string quote/unquote |
+| [stempel](tools/stempel/) | HMAC-SHA256 sign/verify | [tidsstampel](tools/tidsstampel/) | unix timestamp ↔ civil time |
+
+### Data formats (batch D)
+
+| Tool | Purpose | Tool | Purpose |
+| --- | --- | --- | --- |
+| [json2csv](tools/json2csv/) | JSON array → CSV | [lagra](tools/lagra/) | key-value store on JSON |
+| [csv2json](tools/csv2json/) | CSV → JSON (quoted cells) | [param](tools/param/) | query string ↔ JSON |
+| [toml2json](tools/toml2json/) | TOML → pretty JSON | [kolonn](tools/kolonn/) | aligned table from TSV |
+| [packa](tools/packa/) | JSON minifier | [sortera](tools/sortera/) | sort lines (numeric/unique) |
+| [validera](tools/validera/) | JSON validator with offsets | [snygga](tools/snygga/) | pretty-printer with options |
+
+### Files & system (batch S)
+
+| Tool | Purpose | Tool | Purpose |
+| --- | --- | --- | --- |
+| [trad](tools/trad/) | directory tree | [titta](tools/titta/) | poll watcher + exec |
+| [dublett](tools/dublett/) | duplicate file finder (sha256) | [kopia](tools/kopia/) | timestamped backups |
+| [storlek](tools/storlek/) | recursive directory sizes | [byt](tools/byt/) | batch rename substring |
+| [vilken](tools/vilken/) | PATH executable locator | [tom](tools/tom/) | suffix-based file cleaner |
+| [vard](tools/vard/) | host info report | [eko](tools/eko/) | TCP echo server/client |
+
+`AGENT-GUIDE.md` documents the Dunder conventions used across all sixty
+projects — including the gotchas that shaped them.
 
 ## How the pieces fit together
 

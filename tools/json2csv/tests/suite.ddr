@@ -1,0 +1,41 @@
+import ..src.json2csv as json2csv
+
+@test fn csv_cell_quotes_special_bytes() {
+    assert(json2csv.csv_cell("plain") == "plain")
+    assert(json2csv.csv_cell("a,b") == "\"a,b\"")
+    assert(json2csv.csv_cell("say \"hi\"") == "\"say \"\"hi\"\"\"")
+    assert(json2csv.csv_cell("line\nbreak") == "\"line\nbreak\"")
+    assert(json2csv.csv_cell("cr\rhere") == "\"cr\rhere\"")
+}
+
+@test fn to_csv_renders_header_in_source_order() {
+    match json2csv.to_csv("[{\"name\":\"ada\",\"id\":7,\"ok\":true,\"gap\":null}]") {
+        .Ok(csv) => { assert(csv == "name,id,ok,gap\nada,7,true,") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn to_csv_handles_missing_keys_and_special_cells() {
+    match json2csv.to_csv("[{\"a\":\"x,y\",\"b\":\"q\"},{\"b\":\"z\"}]") {
+        .Ok(csv) => { assert(csv == "a,b\n\"x,y\",q\n,z") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn to_csv_preserves_number_text() {
+    match json2csv.to_csv("[{\"n\":1.50,\"m\":-3}]") {
+        .Ok(csv) => { assert(csv == "n,m\n1.50,-3") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn to_csv_rejects_bad_roots_and_nested_values() {
+    assert(json2csv.to_csv("{\"a\":1}").is_err())
+    assert(json2csv.to_csv("[1,2]").is_err())
+    assert(json2csv.to_csv("[{\"a\":{\"b\":1}}]").is_err())
+    assert(json2csv.to_csv("[{\"a\":1} garbage").is_err())
+    match json2csv.to_csv("[]") {
+        .Ok(csv) => { assert(csv == "") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

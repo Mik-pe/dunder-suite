@@ -1,0 +1,33 @@
+import ..src.vand as vand
+
+@test fn reverse_runes_handles_multibyte_correctly() {
+    assert(vand.reverse_runes("ab") == "ba")
+    assert(vand.reverse_runes("åäö") == "öäå")
+    assert(vand.reverse_runes("🌍x") == "x🌍")
+    assert(vand.reverse_runes("a å b") == "b å a")
+    assert(vand.reverse_runes("") == "")
+    assert(vand.reverse_runes("x") == "x")
+}
+
+@test fn reverse_lines_flips_order() {
+    lines: []string = ["one", "two", "three"]
+    flipped := vand.reverse_lines(&lines)
+    assert(flipped.len == 3)
+    assert(flipped[0] == "three")
+    assert(flipped[1] == "two")
+    assert(flipped[2] == "one")
+}
+
+@test fn reverse_lines_handles_empty_and_single() {
+    empty: []string = []
+    assert(vand.reverse_lines(&empty).len == 0)
+    single: []string = ["only"]
+    assert(vand.reverse_lines(&single)[0] == "only")
+}
+
+@test fn to_lines_then_reverse_round_trip() {
+    lines := vand.to_lines("a\nb\nc\n")
+    flipped := vand.reverse_lines(&lines)
+    assert(flipped[0] == "c")
+    assert(flipped[2] == "a")
+}

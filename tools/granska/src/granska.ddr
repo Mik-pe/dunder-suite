@@ -1,0 +1,125 @@
+capability filesystem
+
+import std.fs as fs
+import std.text as text
+import sys
+
+pub struct Marker { path: string, line: i32, kind: string, text: string }
+
+fn lower_byte(b: i32) -> i32 {
+    if b >= 65 && b <= 90 { b + 32 } else { b }
+}
+
+fn is_word_byte(b: i32) -> bool {
+    (b >= 97 && b <= 122) || (b >= 65 && b <= 90) || (b >= 48 && b <= 57)
+}
+
+fn has_word(line: string, marker: string) -> bool {
+    if line.len < marker.len { return false }
+    last := line.len - marker.len
+    mut start := 0
+    while start <= last {
+        mut i := 0
+        while i < marker.len {
+            if lower_byte(line[start + i]) != lower_byte(marker[i]) { break }
+            i += 1
+        }
+        if i == marker.len {
+            before_ok := start == 0 || !is_word_byte(line[start - 1])
+            after_ok := start + marker.len >= line.len || !is_word_byte(line[start + marker.len])
+            if before_ok && after_ok { return true }
+        }
+        start += 1
+    }
+    false
+}
+
+// First marker (TODO, FIXME, XXX, HACK) whose ASCII case-insensitive
+// whole-word form appears in the line, or "".
+pub fn marker_in_line(line: string) -> string {
+    markers: []string = ["TODO", "FIXME", "XXX", "HACK"]
+    for m in markers {
+        if has_word(line, m) { return m.clone() }
+    }
+    ""
+}
+
+pub fn scan_file(path: string) -> Result<[]Marker, string> {
+    content := sys.read_text(path)
+    if !content.ok {
+        return .Err("cannot read " + path + ": " + sys.error_message(content.error))
+    }
+    mut out: []Marker = []
+    mut number := 0
+    lines := text.split(content.value, "\n")
+    last := lines.len - 1
+    for line in lines {
+        number += 1
+        if number > last && line.len == 0 { continue }
+        kind := marker_in_line(line)
+        if kind.len > 0 {
+            out.push(Marker { path: path.clone(), line: number, kind: kind.clone(), text: text.trim(line) })
+        }
+    }
+    .Ok(out)
+}
+
+fn allowed_ext(name: string) -> bool {
+    text.ends_with(name, ".ddr") || text.ends_with(name, ".toml") || text.ends_with(name, ".md") || text.ends_with(name, ".txt")
+}
+
+fn is_hidden(name: string) -> bool {
+    name.len > 0 && name[0] == 46
+}
+
+fn collect(root: string, out: &mut []string, depth: i32) -> string {
+    if depth > 32 { return "directory nesting too deep at " + root }
+    info := sys.metadata(root)
+    if !info.ok { return "cannot stat " + root + ": " + sys.error_message(info.error) }
+    kind := sys.file_kind(info)
+    if kind == .File {
+        if allowed_ext(root) { out.push(root.clone()) }
+        return ""
+    }
+    if kind != .Directory { return "" }
+    listed := fs.list_dir(root)
+    if !listed.ok { return "cannot list " + root + ": " + sys.error_message(listed.error) }
+    for name in listed.entries {
+        if is_hidden(name) { continue }
+        path := if root == "." { name.clone() } else { root + "/" + name }
+        err := collect(path, &mut out, depth + 1)
+        if err.len > 0 { return err }
+    }
+    ""
+}
+
+// Walks each path (recursively, skipping hidden directories), scans
+// .ddr/.toml/.md/.txt files, and returns markers ordered by walk order.
+// Files that cannot be read (e.g. invalid UTF-8) are skipped.
+pub fn scan_paths(paths: &[]string) -> Result<[]Marker, string> {
+    mut files: []string = []
+    for p in paths {
+        err := collect(p.clone(), &mut files, 0)
+        if err.len > 0 { return .Err(err) }
+    }
+    mut out: []Marker = []
+    for f in files {
+        match scan_file(f.clone()) {
+            .Ok(markers) => { for m in markers { out.push(m.clone()) } },
+            .Err(_) => { },
+        }
+    }
+    .Ok(out)
+}
+
+pub fn count_files(markers: &[]Marker) -> i32 {
+    mut files := 0
+    mut prev := ""
+    for m in markers {
+        if m.path != prev {
+            files += 1
+            prev = m.path.clone()
+        }
+    }
+    files
+}

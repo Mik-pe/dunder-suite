@@ -1,0 +1,61 @@
+import std.text as text
+import sys
+
+import sortera
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: sortera [-n] [-r] [-u] [FILE]")
+    _ := sys.eprint("  sorts lines: -n numeric, -r reverse after sorting, -u dedupe after sorting")
+    _ := sys.eprint("  with -n, lines that fail numeric parsing go last in original order")
+    _ := sys.eprint("  reads stdin when FILE is omitted or '-'")
+    return 2
+}
+
+fn main() -> i32 {
+    mut numeric := false
+    mut reverse := false
+    mut unique := false
+    mut positional: []string = []
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-n" { numeric = true }
+        else if a == "-r" { reverse = true }
+        else if a == "-u" { unique = true }
+        else if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("sortera: unknown flag " + a)
+            return 2
+        } else {
+            positional.push(a.clone())
+        }
+        i += 1
+    }
+    if positional.len > 1 { return usage() }
+
+    mut read_path := "/dev/stdin"
+    if positional.len == 1 && positional[0] != "-" { read_path = positional[0].clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("sortera: cannot read " + read_path + ": " + sys.error_message(content.error))
+        return 1
+    }
+    mut payload := content.value
+    lines := text.split(payload, "\n")
+    mut input: []string = []
+    for idx in 0..lines.len {
+        if idx == lines.len - 1 && lines[idx].len == 0 { continue }
+        input.push(lines[idx].clone())
+    }
+
+    sorted := sortera.sort_lines(&input, numeric, reverse, unique)
+    mut out := ""
+    mut first := true
+    for line in sorted {
+        if !first { out = out + "\n" }
+        first = false
+        out = out + line
+    }
+    print(out)
+    return 0
+}

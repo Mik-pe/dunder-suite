@@ -1,0 +1,68 @@
+import std.bytes as bytes
+import std.text as text
+
+// Percent-encoding (RFC 3986). Encoding works on raw UTF-8 bytes; decoding
+// turns %XX escapes and '+' (form-style space) back into bytes and then
+// requires the result to be valid UTF-8.
+
+fn is_alnum(b: i32) -> bool {
+    (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57)
+}
+
+fn is_unreserved(b: i32) -> bool {
+    is_alnum(b) || b == 45 || b == 46 || b == 95 || b == 126
+}
+
+fn hex_code(v: i32) -> i32 {
+    if v < 10 { 48 + v } else { 55 + v }
+}
+
+fn hex_val(b: i32) -> i32 {
+    if b >= 48 && b <= 57 { return b - 48 }
+    if b >= 97 && b <= 102 { return b - 87 }
+    if b >= 65 && b <= 70 { return b - 55 }
+    -1
+}
+
+pub fn encode(s: string, full: bool) -> string {
+    mut out: []u8 = []
+    for b in s.bytes() {
+        v := i32(b)
+        mut keep := is_unreserved(v)
+        if full { keep = is_alnum(v) }
+        if keep {
+            out.push(u8(v))
+        } else {
+            out.push(u8(37))
+            out.push(u8(hex_code(v / 16)))
+            out.push(u8(hex_code(v % 16)))
+        }
+    }
+    bytes.decode(&out).value
+}
+
+pub fn decode(s: string) -> Result<string, string> {
+    raw := s.bytes()
+    mut out: []u8 = []
+    mut i := 0
+    while i < s.len {
+        b := i32(raw[i])
+        if b == 37 {
+            if i + 2 >= s.len { return .Err("truncated %XX escape at end of input") }
+            h := hex_val(i32(raw[i + 1]))
+            l := hex_val(i32(raw[i + 2]))
+            if h < 0 || l < 0 { return .Err("invalid hex digit in %XX escape") }
+            out.push(u8(h * 16 + l))
+            i += 3
+        } else if b == 43 {
+            out.push(u8(32))
+            i += 1
+        } else {
+            out.push(u8(b))
+            i += 1
+        }
+    }
+    decoded := bytes.decode(&out)
+    if !decoded.ok { return .Err("decoded bytes are not valid UTF-8") }
+    .Ok(decoded.value)
+}

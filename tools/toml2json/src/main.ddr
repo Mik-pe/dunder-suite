@@ -1,0 +1,41 @@
+import std.text as text
+import sys
+
+import toml2json
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: toml2json [FILE]")
+    _ := sys.eprint("  TOML -> pretty JSON (2-space indent); reads stdin when FILE is omitted or '-'")
+    return 2
+}
+
+fn main() -> i32 {
+    mut positional: []string = []
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("toml2json: unknown flag " + a)
+            return 2
+        } else {
+            positional.push(a.clone())
+        }
+        i += 1
+    }
+    if positional.len > 1 { return usage() }
+
+    mut read_path := "/dev/stdin"
+    if positional.len == 1 && positional[0] != "-" { read_path = positional[0].clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("toml2json: cannot read " + read_path + ": " + sys.error_message(content.error))
+        return 1
+    }
+    mut payload := content.value
+    match toml2json.convert(payload) {
+        .Ok(pretty) => { print(pretty) },
+        .Err(e) => { _ := sys.eprint("toml2json: " + e); return 1 },
+    }
+    return 0
+}

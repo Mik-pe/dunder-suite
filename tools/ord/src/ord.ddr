@@ -1,0 +1,29 @@
+pub struct Counts { lines: i32, words: i32, bytes: i32 }
+
+fn is_ws(b: i32) -> bool {
+    b == 32 || b == 9 || b == 10 || b == 13 || b == 11 || b == 12
+}
+
+pub fn count_text(content: string) -> Counts {
+    mut line_count := 0
+    mut words := 0
+    mut in_word := false
+    for i in 0..content.len {
+        b := content[i]
+        if b == 10 { line_count += 1 }
+        if !in_word && !is_ws(b) { words += 1 }
+        in_word = !is_ws(b)
+    }
+    if content.len > 0 && content[content.len - 1] != 10 { line_count += 1 }
+    Counts { lines: line_count, words: words, bytes: content.len }
+}
+
+pub fn render(counts: &Counts, label: string) -> string {
+    f"{counts.lines:7} {counts.words:7} {counts.bytes:7} {label}"
+}
+
+pub fn add(into: &mut Counts, other: &Counts) {
+    into.lines += other.lines
+    into.words += other.words
+    into.bytes += other.bytes
+}

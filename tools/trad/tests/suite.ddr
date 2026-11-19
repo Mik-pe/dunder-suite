@@ -1,0 +1,75 @@
+capability filesystem
+
+import std.fs as fs
+import std.sys as sys
+
+import ..src.trad as trad
+
+fn make_tree() -> Result<string, string> {
+    dir := fs.temp_dir("trad-suite-")
+    if !dir.ok { return .Err("temp_dir failed") }
+    root := dir.value
+    _ := sys.write_text(root + "/b.txt", "b")
+    _ := sys.write_text(root + "/a.txt", "a")
+    _ := sys.mkdir(root + "/sub")
+    _ := sys.write_text(root + "/sub/deep.md", "# d")
+    _ := sys.write_text(root + "/.hidden", "h")
+    .Ok(root)
+}
+
+@test fn render_tree_matches_known_shape_exactly() {
+    match make_tree() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            match trad.render_tree(root, 4) {
+                .Ok(tree) => {
+                    want := root + "/\n|-- a.txt\n|-- b.txt\n`-- sub/\n    `-- deep.md"
+                    assert(tree == want)
+                },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn render_tree_caps_depth() {
+    match make_tree() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            match trad.render_tree(root, 0) {
+                .Ok(zero) => { assert(zero == root + "/") },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+            match trad.render_tree(root, 1) {
+                .Ok(one) => { assert(one == root + "/\n|-- a.txt\n|-- b.txt\n`-- sub/") },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn render_tree_rejects_unreadable_root_and_negative_depth() {
+    match make_tree() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            assert(trad.render_tree(root + "/nope", 4).is_err())
+            assert(trad.render_tree(root, -1).is_err())
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn render_tree_passes_single_files_through() {
+    match make_tree() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            match trad.render_tree(root + "/a.txt", 4) {
+                .Ok(s) => { assert(s == root + "/a.txt") },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

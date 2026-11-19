@@ -1,0 +1,38 @@
+// slump — random values from the crypto generator.
+//
+// random_range draws 7 bytes (56 bits, comfortably inside i64) and
+// scales them into [min, max] — rejection-free and without the modulo
+// bias a naive `raw % span` would introduce.
+
+import std.bytes as bytes
+import std.crypto as crypto
+
+pub fn random_hex(n: i32) -> Result<string, string> {
+    if n < 1 || n > 1024 { return .Err("byte count must be 1..1024") }
+    drawn := crypto.random(n)
+    if !drawn.ok { return .Err("random generation failed: " + drawn.error) }
+    .Ok(bytes.hex_u8(&drawn.value))
+}
+
+pub fn random_range(min: i64, max: i64) -> Result<i64, string> {
+    if min > max { return .Err("min must be <= max") }
+    span := max - min + 1
+    drawn := crypto.random(7)
+    if !drawn.ok { return .Err("random generation failed: " + drawn.error) }
+    mut raw: i64 = 0
+    for b in drawn.value {
+        raw = raw * 256 + i64(b)
+    }
+    scaled := f64(raw) / 72057594037927936.0
+    mut offset := i64(scaled * f64(span))
+    if offset >= span { offset = span - 1 }
+    .Ok(min + offset)
+}
+
+pub fn random_index(len: i32) -> Result<i32, string> {
+    if len < 1 { return .Err("length must be >= 1") }
+    match random_range(0, i64(len) - 1) {
+        .Ok(v) => { .Ok(i32(v)) },
+        .Err(e) => { .Err(e.clone()) },
+    }
+}

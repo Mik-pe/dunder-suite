@@ -1,0 +1,76 @@
+import std.bytes as bytes
+import std.json as json
+
+pub fn csv_cell(cell: string) -> string {
+    mut needs_quotes := false
+    for b in cell.bytes() {
+        if b == 44 || b == 34 || b == 10 || b == 13 { needs_quotes = true }
+    }
+    if !needs_quotes { return cell.clone() }
+    mut out: []u8 = []
+    out.push(b'"')
+    for b in cell.bytes() {
+        if b == 34 { out.push(b'"') }
+        out.push(u8(b))
+    }
+    out.push(b'"')
+    bytes.decode(&out).value
+}
+
+fn csv_line(cells: &[]string) -> string {
+    mut line := ""
+    for i in 0..cells.len {
+        if i > 0 { line = line + "," }
+        line = line + csv_cell(cells[i])
+    }
+    line
+}
+
+pub fn scalar_cell(doc: &json.Doc, node: i32) -> Result<string, string> {
+    kind := doc.kind(node)
+    if kind == .String { return .Ok(doc.as_str(node).value) }
+    if kind == .Bool {
+        if doc.as_bool(node).value { return .Ok("true") }
+        return .Ok("false")
+    }
+    if kind == .Null { return .Ok("") }
+    if kind == .Number { return .Ok(doc.raw_span(node)) }
+    .Err("only scalar values (string/number/bool/null) are supported")
+}
+
+pub fn to_csv(json_text: string) -> Result<string, string> {
+    doc := json.Doc::parse_text(json_text)
+    if !doc.ok { return .Err(f"{doc.error} at byte {doc.offset}") }
+    if doc.kind(doc.root) != .Array { return .Err("root must be a JSON array of objects") }
+    rows := doc.count(doc.root)
+    if rows == 0 { return .Ok("") }
+
+    first := doc.at(doc.root, 0)
+    if doc.kind(first) != .Object { return .Err("row 0 is not an object") }
+    mut header: []string = []
+    for i in 0..doc.count(first) {
+        key := doc.key_at(first, i)
+        if !key.ok { return .Err("row 0 has an undecodable key") }
+        header.push(key.value.clone())
+    }
+
+    mut out := csv_line(&header)
+    for r in 0..rows {
+        obj := doc.at(doc.root, r)
+        if doc.kind(obj) != .Object { return .Err(f"row {r} is not an object") }
+        mut cells: []string = []
+        for name in header {
+            node := doc.field(obj, name)
+            if node < 0 {
+                cells.push("")
+            } else {
+                match scalar_cell(&doc, node) {
+                    .Ok(cell) => { cells.push(cell.clone()) },
+                    .Err(e) => { return .Err(f"row {r}, key {name}: {e}") },
+                }
+            }
+        }
+        out = out + "\n" + csv_line(&cells)
+    }
+    .Ok(out)
+}

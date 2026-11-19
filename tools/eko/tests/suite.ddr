@@ -1,0 +1,42 @@
+capability network
+
+import ..src.eko as eko
+
+@test fn roundtrip_echoes_a_single_line() {
+    match eko.roundtrip(0, "ping\n") {
+        .Ok(reply) => { assert(reply == "ping\n") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn roundtrip_echoes_several_lines_in_order() {
+    match eko.roundtrip(0, "alpha\nbeta\ngamma\n") {
+        .Ok(reply) => { assert(reply == "alpha\nbeta\ngamma\n") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn roundtrip_echoes_a_large_payload() {
+    mut big := ""
+    for _ in 0..3000 { big = big + "x" }
+    big = big + "\n"
+    match eko.roundtrip(0, big) {
+        .Ok(reply) => { assert(reply == big) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_ipv4_accepts_quads_and_rejects_garbage() {
+    match eko.parse_ipv4("127.0.0.1") {
+        .Ok(ip) => { assert(ip.0 == 127 && ip.1 == 0 && ip.2 == 0 && ip.3 == 1) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match eko.parse_ipv4("192.168.1.20") {
+        .Ok(ip) => { assert(ip.0 == 192 && ip.3 == 20) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    assert(eko.parse_ipv4("256.1.1.1").is_err())
+    assert(eko.parse_ipv4("1.2.3").is_err())
+    assert(eko.parse_ipv4("localhost").is_err())
+    assert(eko.parse_ipv4("").is_err())
+}

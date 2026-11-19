@@ -1,0 +1,39 @@
+import ..src.citera as citera
+
+@test fn quote_line_renders_basic_and_tricky_strings() {
+    assert(citera.quote_line("hello") == "\"hello\"")
+    assert(citera.quote_line("") == "\"\"")
+    assert(citera.quote_line("mön") == "\"mön\"")
+    quoted := citera.quote_line("a\"b")
+    assert(quoted == "\"a\\\"b\"")
+    slashed := citera.quote_line("a\\b")
+    assert(slashed == "\"a\\\\b\"")
+    newlined := citera.quote_line("a\nb")
+    assert(newlined == "\"a\\nb\"")
+}
+
+@test fn unquote_line_parses_valid_json_strings() {
+    match citera.unquote_line("hello") { .Ok(v) => { assert(v == "hello") }, .Err(_) => { assert(false) } }
+    match citera.unquote_line("a\\nb") { .Ok(v) => { assert(v == "a\nb") }, .Err(_) => { assert(false) } }
+    match citera.unquote_line("a\\tb") { .Ok(v) => { assert(v == "a\tb") }, .Err(_) => { assert(false) } }
+    match citera.unquote_line("a\\\\b") { .Ok(v) => { assert(v == "a\\b") }, .Err(_) => { assert(false) } }
+    match citera.unquote_line("\\u00e5") { .Ok(v) => { assert(v == "å") }, .Err(_) => { assert(false) } }
+    match citera.unquote_line("") { .Ok(v) => { assert(v == "") }, .Err(_) => { assert(false) } }
+}
+
+@test fn unquote_line_rejects_invalid_json() {
+    assert(citera.unquote_line("\"unterminated").is_err())
+    assert(citera.unquote_line("bad\\qescape").is_err())
+    assert(citera.unquote_line("line one\nline two").is_err())
+}
+
+@test fn quote_and_unquote_roundtrip() {
+    samples := ["plain", "with \"quotes\" and \\ backslash", "tab\there", "mön åäö", ""]
+    for s in samples {
+        quoted := citera.quote_line(s.clone())
+        match citera.unquote_line(quoted[1..quoted.len - 1]) {
+            .Ok(v) => { assert(v == s) },
+            .Err(_) => { assert(false) },
+        }
+    }
+}

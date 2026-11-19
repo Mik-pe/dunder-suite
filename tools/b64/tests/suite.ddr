@@ -1,0 +1,68 @@
+import ..src.b64 as b64
+
+fn bytes_of(s: string) -> []u8 {
+    mut out: []u8 = []
+    for b in s.bytes() { out.push(u8(b)) }
+    out
+}
+
+fn same_bytes(a: &[]u8, b: &[]u8) -> bool {
+    if a.len != b.len { return false }
+    mut i := 0
+    while i < a.len {
+        if a[i] != b[i] { return false }
+        i += 1
+    }
+    true
+}
+
+@test fn encode_known_vectors_and_padding() {
+    assert(b64.encode(&bytes_of("")) == "")
+    assert(b64.encode(&bytes_of("Man")) == "TWFu")
+    assert(b64.encode(&bytes_of("Ma")) == "TWE=")
+    assert(b64.encode(&bytes_of("M")) == "TQ==")
+    assert(b64.encode(&bytes_of("abcde")) == "YWJjZGU=")
+    assert(b64.encode(&bytes_of("many hands make light work")) == "bWFueSBoYW5kcyBtYWtlIGxpZ2h0IHdvcms=")
+}
+
+@test fn decode_known_vectors() {
+    match b64.decode("TWFu") {
+        .Ok(v) => { assert(v.len == 3); assert(i32(v[0]) == 77 && i32(v[1]) == 97 && i32(v[2]) == 110) },
+        .Err(_) => { assert(false) },
+    }
+    match b64.decode("TQ==") {
+        .Ok(v) => { assert(v.len == 1); assert(i32(v[0]) == 77) },
+        .Err(_) => { assert(false) },
+    }
+    match b64.decode("TWE=") {
+        .Ok(v) => { assert(v.len == 2); assert(i32(v[0]) == 77 && i32(v[1]) == 97) },
+        .Err(_) => { assert(false) },
+    }
+    match b64.decode("") {
+        .Ok(v) => { assert(v.len == 0) },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn roundtrips_payloads_of_every_alignment() {
+    samples := ["", "a", "ab", "abc", "abcd", "abcde", "abcdef", "hello wörld", "\ttabs\tand\nnewlines\n"]
+    for payload in samples {
+        raw := bytes_of(payload.clone())
+        match b64.decode(b64.encode(&raw)) {
+            .Ok(v) => { assert(same_bytes(&v, &raw)) },
+            .Err(_) => { assert(false) },
+        }
+    }
+}
+
+@test fn decode_rejects_invalid_input() {
+    assert(b64.decode("A").is_err())
+    assert(b64.decode("TQ=").is_err())
+    assert(b64.decode("TQ===").is_err())
+    assert(b64.decode("TW!u").is_err())
+    assert(b64.decode("TWFuT=WF").is_err())
+    assert(b64.decode("T=WF").is_err())
+    assert(b64.decode("TW=u").is_err())
+    assert(b64.decode("mön").is_err())
+    assert(b64.decode("TWFu ").is_err())
+}

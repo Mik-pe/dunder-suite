@@ -1,0 +1,45 @@
+import ..src.klipp as klipp
+
+@test fn field_extracts_first_field_by_default_separator() {
+    match klipp.field("name\tage\tcity", "\t", 1) {
+        .Ok(v) => { assert(v == "name") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match klipp.field("name\tage\tcity", "\t", 3) {
+        .Ok(v) => { assert(v == "city") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn field_supports_custom_separators() {
+    match klipp.field("a,b,c", ",", 2) {
+        .Ok(v) => { assert(v == "b") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match klipp.field("one::two", "::", 2) {
+        .Ok(v) => { assert(v == "two") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn field_errors_when_out_of_range_or_invalid() {
+    assert(klipp.field("a\tb", "\t", 3).is_err())
+    assert(klipp.field("a\tb", "\t", 0).is_err())
+    assert(klipp.field("a\tb", "", 1).is_err())
+    match klipp.field("a\tb", "\t", 3) {
+        .Ok(v) => { assert(v.len >= 0); assert(false) },
+        .Err(e) => { assert(e.len > 0) },
+    }
+}
+
+@test fn to_lines_splits_and_drops_trailing_empty() {
+    lines := klipp.to_lines("a\nb\n")
+    assert(lines.len == 2)
+    assert(lines[0] == "a")
+    assert(lines[1] == "b")
+    assert(klipp.to_lines("").len == 0)
+    assert(klipp.to_lines("x").len == 1)
+    gap := klipp.to_lines("a\n\nb")
+    assert(gap.len == 3)
+    assert(gap[1] == "")
+}

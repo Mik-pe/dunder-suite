@@ -1,0 +1,48 @@
+import std.parse as parse
+import sys
+
+import radbryt
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: radbryt [-w N] [FILE]")
+    _ := sys.eprint("  wrap paragraphs (blank-line separated) to N columns (default 72)")
+    _ := sys.eprint("  words longer than the width go on their own line unbroken")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut width := 72
+    mut file_arg := "-"
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-w" {
+            if i + 1 >= count { _ := sys.eprint("radbryt: missing value after -w"); return 2 }
+            i += 1
+            r := parse.integer(sys.arg(i))
+            if !r.ok || r.value < 1 || r.value > 10000 {
+                _ := sys.eprint("radbryt: -w must be an integer in 1..10000")
+                return 2
+            }
+            width = i32(r.value)
+        } else if a == "--help" || a == "-h" {
+            return usage()
+        } else if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("radbryt: unknown flag " + a)
+            return 2
+        } else {
+            file_arg = a.clone()
+        }
+        i += 1
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("radbryt: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    print(radbryt.wrap_text(content.value, width))
+    return 0
+}

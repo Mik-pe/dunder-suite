@@ -1,0 +1,46 @@
+capability filesystem
+
+import std.array as array
+import std.fs as fs
+import std.parse as parse
+import std.text as text
+import sys
+
+pub fn backup(path: string) -> Result<string, string> {
+    read := sys.read_u8(path)
+    if !read.ok {
+        return .Err("cannot read " + path + ": " + sys.error_message(read.error))
+    }
+    dest := path + ".bak." + sys.now_ms().str()
+    written := sys.write_u8(dest, &read.value)
+    if !written.ok {
+        return .Err("cannot write " + dest + ": " + sys.error_message(written.error))
+    }
+    .Ok(dest)
+}
+
+pub fn prune(dir: string, base_name: string, keep: i32) -> Result<i32, string> {
+    if keep < 1 { return .Err("keep must be >= 1") }
+    listed := fs.list_dir(dir)
+    if !listed.ok {
+        return .Err("cannot list " + dir + ": " + sys.error_message(listed.error))
+    }
+    prefix := base_name + ".bak."
+    mut stamps: []i64 = []
+    for name in listed.entries {
+        if !text.starts_with(name, prefix) { continue }
+        rest := name[prefix.len..name.len]
+        n := parse.integer(rest)
+        if n.ok { stamps.push(n.value) }
+    }
+    if stamps.len <= keep { return .Ok(0) }
+    array.sort<i64>(&mut stamps)
+    mut removed := 0
+    excess := stamps.len - keep
+    for i in 0..excess {
+        victim := dir + "/" + prefix + stamps[i].str()
+        gone := sys.remove_file(victim)
+        if gone.ok { removed += 1 }
+    }
+    .Ok(removed)
+}

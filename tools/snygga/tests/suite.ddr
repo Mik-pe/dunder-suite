@@ -1,0 +1,56 @@
+import ..src.snygga as snygga
+
+@test fn pretty_prints_two_space_by_default() {
+    match snygga.pretty("{\"a\":[1,2],\"b\":{},\"c\":[]}", 2, false) {
+        .Ok(out) => { assert(out == "{\n  \"a\": [\n    1,\n    2\n  ],\n  \"b\": {},\n  \"c\": []\n}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn pretty_honors_custom_indent() {
+    match snygga.pretty("[1,2]", 4, false) {
+        .Ok(out) => { assert(out == "[\n    1,\n    2\n]") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match snygga.pretty("[1]", 0, false) {
+        .Ok(out) => { assert(out == "[\n1\n]") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn compact_flat_inlines_scalar_arrays_only() {
+    match snygga.pretty("{\"a\":[1,2],\"b\":[[1],[2]],\"c\":[],\"d\":[\"x\"],\"e\":{\"k\":[true,null]}}", 2, true) {
+        .Ok(out) => {
+            assert(out == "{\n  \"a\": [1, 2],\n  \"b\": [\n    [1],\n    [2]\n  ],\n  \"c\": [],\n  \"d\": [\"x\"],\n  \"e\": {\n    \"k\": [true, null]\n  }\n}")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn pretty_quotes_strings_and_preserves_numbers() {
+    match snygga.pretty("{\"s\":\"he said \\\"hi\\\"\",\"n\":1.50,\"u\":\"räksmörgås\"}", 2, false) {
+        .Ok(out) => {
+            assert(out == "{\n  \"s\": \"he said \\\"hi\\\"\",\n  \"n\": 1.50,\n  \"u\": \"räksmörgås\"\n}")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn pretty_handles_scalars_and_nested_containers() {
+    match snygga.pretty("  \"plain\"  ", 2, false) {
+        .Ok(out) => { assert(out == "\"plain\"") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match snygga.pretty("{\"x\":{\"y\":[{\"z\":1}]}}", 2, false) {
+        .Ok(out) => { assert(out == "{\n  \"x\": {\n    \"y\": [\n      {\n        \"z\": 1\n      }\n    ]\n  }\n}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn pretty_rejects_invalid_input_and_bad_indent() {
+    assert(snygga.pretty("{\"a\":}", 2, false).is_err())
+    assert(snygga.pretty("", 2, false).is_err())
+    assert(snygga.pretty("[1] junk", 2, false).is_err())
+    assert(snygga.pretty("[1]", -1, false).is_err())
+    assert(snygga.pretty("[1]", 17, false).is_err())
+}

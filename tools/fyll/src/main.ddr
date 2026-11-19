@@ -1,0 +1,63 @@
+import std.parse as parse
+import sys
+
+import fyll
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: fyll [-w N] [-m left|right|center] [-t] [FILE]")
+    _ := sys.eprint("  pad each line to width N (default 20); -t truncates longer lines")
+    _ := sys.eprint("  -w N              target width in runes (default 20)")
+    _ := sys.eprint("  -m left|right|center  alignment (default left)")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut width := 20
+    mut mode := "left"
+    mut truncate := false
+    mut file_arg := "-"
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-w" {
+            if i + 1 >= count { _ := sys.eprint("fyll: missing value after -w"); return 2 }
+            i += 1
+            r := parse.integer(sys.arg(i))
+            if !r.ok || r.value < 1 || r.value > 10000 {
+                _ := sys.eprint("fyll: -w must be an integer in 1..10000")
+                return 2
+            }
+            width = i32(r.value)
+        } else if a == "-m" {
+            if i + 1 >= count { _ := sys.eprint("fyll: missing value after -m"); return 2 }
+            i += 1
+            mode = sys.arg(i)
+            if mode != "left" && mode != "right" && mode != "center" {
+                _ := sys.eprint("fyll: -m must be left, right or center")
+                return 2
+            }
+        } else if a == "-t" {
+            truncate = true
+        } else if a == "--help" || a == "-h" {
+            return usage()
+        } else if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("fyll: unknown flag " + a)
+            return 2
+        } else {
+            file_arg = a.clone()
+        }
+        i += 1
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("fyll: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    for line in fyll.to_lines(content.value) {
+        print(fyll.pad_line(line, width, mode, truncate))
+    }
+    return 0
+}

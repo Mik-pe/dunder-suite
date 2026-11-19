@@ -1,0 +1,76 @@
+import std.bytes as bytes
+import std.text as text
+
+pub fn to_lines(content: string) -> []string {
+    mut lines: []string = []
+    parts := text.split(content, "\n")
+    last := parts.len - 1
+    mut i := 0
+    for part in parts {
+        if !(i == last && part.len == 0) {
+            lines.push(part.clone())
+        }
+        i += 1
+    }
+    lines
+}
+
+// ASCII-only case conversion: a-z/A-Z are folded, every other byte
+// (including multi-byte runes like åäö) passes through unchanged.
+pub fn upper_ascii(s: string) -> string {
+    mut buf: []u8 = []
+    for i in 0..s.len {
+        b := s[i]
+        if b >= 97 && b <= 122 {
+            buf.push(u8(b - 32))
+        } else {
+            buf.push(u8(b))
+        }
+    }
+    bytes.decode(&buf).value
+}
+
+pub fn lower_ascii(s: string) -> string {
+    mut buf: []u8 = []
+    for i in 0..s.len {
+        b := s[i]
+        if b >= 65 && b <= 90 {
+            buf.push(u8(b + 32))
+        } else {
+            buf.push(u8(b))
+        }
+    }
+    bytes.decode(&buf).value
+}
+
+// First ASCII letter of each word (after a non-alphanumeric byte) is
+// uppercased, remaining ASCII letters are lowercased.
+pub fn title_ascii(s: string) -> string {
+    mut buf: []u8 = []
+    mut word_start := true
+    for i in 0..s.len {
+        b := s[i]
+        if b >= 97 && b <= 122 {
+            if word_start {
+                buf.push(u8(b - 32))
+                word_start = false
+            } else {
+                buf.push(u8(b))
+            }
+        } else if b >= 65 && b <= 90 {
+            if word_start {
+                buf.push(u8(b))
+                word_start = false
+            } else {
+                buf.push(u8(b + 32))
+            }
+        } else if b >= 48 && b <= 57 {
+            buf.push(u8(b))
+            word_start = false
+        } else {
+            buf.push(u8(b))
+            word_start = true
+        }
+    }
+    bytes.decode(&buf).value
+}

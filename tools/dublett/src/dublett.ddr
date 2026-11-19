@@ -1,0 +1,110 @@
+capability filesystem
+
+import std.array as array
+import std.bytes as bytes
+import std.fs as fs
+import std.sha256 as sha256
+import std.text as text
+import sys
+
+pub struct FileEntry {
+    path: string,
+    size: i64,
+    digest: string,
+}
+
+fn to_i32_bytes(data: &[]u8) -> []i32 {
+    mut out: []i32 = []
+    for b in data { out.push(i32(b)) }
+    out
+}
+
+pub fn file_digest(path: string) -> Result<string, string> {
+    read := sys.read_u8(path)
+    if !read.ok {
+        return .Err("cannot read " + path + ": " + sys.error_message(read.error))
+    }
+    raw := to_i32_bytes(&read.value)
+    digest := sha256.digest(&raw)
+    mut hexable: []u8 = []
+    for v in digest { hexable.push(u8(v)) }
+    .Ok(bytes.hex_u8(&hexable))
+}
+
+fn walk_dir(dir: string, out: &mut []FileEntry, is_root: bool, depth: i32) -> string {
+    if depth > 32 { return "directory nesting too deep at " + dir }
+    listed := fs.list_dir(dir)
+    if !listed.ok {
+        if is_root {
+            return "cannot list " + dir + ": " + sys.error_message(listed.error)
+        }
+        return ""
+    }
+    for name in listed.entries {
+        if text.starts_with(name, ".") { continue }
+        child := dir + "/" + name
+        info := sys.metadata(child)
+        if !info.ok { continue }
+        kind := sys.file_kind(info)
+        if kind == .Directory {
+            err := walk_dir(child, &mut out, false, depth + 1)
+            if err.len > 0 { return err }
+        } else if kind == .File {
+            out.push(FileEntry { path: child, size: info.size, digest: "" })
+        }
+    }
+    ""
+}
+
+pub fn collect_entries(root: string) -> Result<[]FileEntry, string> {
+    info := sys.metadata(root)
+    if !info.ok {
+        return .Err("cannot read " + root + ": " + sys.error_message(info.error))
+    }
+    mut out: []FileEntry = []
+    if sys.file_kind(info) == .File {
+        out.push(FileEntry { path: root.clone(), size: info.size, digest: "" })
+        return .Ok(out)
+    }
+    err := walk_dir(root, &mut out, true, 0)
+    if err.len > 0 { return .Err(err) }
+    .Ok(out)
+}
+
+pub fn size_candidates(entries: &[]FileEntry) -> []FileEntry {
+    mut out: []FileEntry = []
+    for i in 0..entries.len {
+        mut dup := false
+        for j in 0..entries.len {
+            if j != i && entries[j].size == entries[i].size { dup = true }
+        }
+        if dup { out.push(entries[i].clone()) }
+    }
+    out
+}
+
+fn compare_entries(a: &FileEntry, b: &FileEntry) -> Ordering {
+    if a.digest < b.digest { return .Less }
+    if a.digest == b.digest && a.path < b.path { return .Less }
+    if a.digest == b.digest && a.path == b.path { return .Equal }
+    .Greater
+}
+
+pub fn group_by_digest(entries: &[]FileEntry) -> [][]string {
+    mut sorted: []FileEntry = []
+    for e in entries { sorted.push(e.clone()) }
+    array.sort_by<FileEntry>(&mut sorted, compare_entries)
+    mut groups: [][]string = []
+    mut i := 0
+    while i < sorted.len {
+        mut j := i + 1
+        while j < sorted.len && sorted[j].digest == sorted[i].digest { j += 1 }
+        if j - i >= 2 {
+            mut paths: []string = []
+            for k in i..j { paths.push(sorted[k].path.clone()) }
+            groups.push(paths.clone())
+        }
+        i = j
+    }
+    groups
+}

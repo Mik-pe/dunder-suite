@@ -1,0 +1,73 @@
+import std.text as text
+import sys
+
+import urlkod
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: urlkod encode [--full] [DATA | FILE | -]")
+    _ := sys.eprint("       urlkod decode [DATA | FILE | -]")
+    _ := sys.eprint("  encode keeps A-Za-z0-9-._~; --full keeps only A-Za-z0-9")
+    _ := sys.eprint("  decode accepts %XX (upper or lower hex) and '+' as space")
+    _ := sys.eprint("  with no argument, or '-', reads stdin")
+    return 2
+}
+
+fn load_text(arg: string) -> Result<string, string> {
+    if arg.len == 0 || arg == "-" {
+        data := sys.read_text("/dev/stdin")
+        if !data.ok { return .Err("cannot read stdin: " + sys.error_message(data.error)) }
+        return .Ok(data.value)
+    }
+    info := sys.metadata(arg)
+    if info.ok && sys.file_kind(info) == .File {
+        data := sys.read_text(arg)
+        if !data.ok { return .Err("cannot read " + arg + ": " + sys.error_message(data.error)) }
+        return .Ok(data.value)
+    }
+    .Ok(arg.clone())
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    sub := sys.arg(1)
+    if sub != "encode" && sub != "decode" {
+        _ := sys.eprint("urlkod: unknown subcommand '" + sub + "'")
+        return 2
+    }
+    mut full := false
+    mut arg := ""
+    mut i := 2
+    while i < count {
+        a := sys.arg(i)
+        if a == "--full" {
+            if sub != "encode" { _ := sys.eprint("urlkod: --full only applies to encode"); return 2 }
+            full = true
+        } else if text.starts_with(a, "-") && a.len > 1 && a != "-" {
+            _ := sys.eprint("urlkod: unknown flag " + a)
+            return 2
+        } else if arg.len > 0 {
+            _ := sys.eprint("urlkod: too many arguments")
+            return 2
+        } else {
+            arg = a
+        }
+        i += 1
+    }
+
+    match load_text(arg) {
+        .Ok(body) => {
+            mut cleaned := body
+            if text.ends_with(cleaned, "\n") { cleaned = cleaned[0..cleaned.len - 1] }
+            if sub == "encode" {
+                print(urlkod.encode(cleaned, full))
+                return 0
+            }
+            match urlkod.decode(text.trim(cleaned)) {
+                .Ok(v) => { print(v); return 0 },
+                .Err(e) => { _ := sys.eprint("urlkod: " + e); return 1 },
+            }
+        },
+        .Err(e) => { _ := sys.eprint("urlkod: " + e); return 1 },
+    }
+}

@@ -1,0 +1,54 @@
+import ..src.hexdump as hexdump
+
+@test fn render_row_full_width() {
+    mut row: []u8 = []
+    row.push(b'A')
+    row.push(b'B')
+    row.push(b'!')
+    row.push(b'~')
+    assert(hexdump.render_row(0, &row, 4) == "00000000  41 42 21 7e  |AB!~|")
+}
+
+@test fn render_row_pads_short_rows_and_masks_non_printables() {
+    mut row: []u8 = []
+    row.push(u8(0))
+    row.push(b'A')
+    expected := "0000000a  00 41" + "                    " + "|.A|"
+    assert(hexdump.render_row(10, &row, 8) == expected)
+}
+
+@test fn render_row_zero_pads_offset() {
+    mut row: []u8 = []
+    row.push(b'A')
+    assert(hexdump.render_row(255, &row, 1) == "000000ff  41  |A|")
+}
+
+@test fn render_row_prints_space_but_not_delete() {
+    mut row: []u8 = []
+    row.push(b' ')
+    row.push(u8(127))
+    assert(hexdump.render_row(0, &row, 2) == "00000000  20 7f  | .|")
+}
+
+@test fn dump_splits_into_rows_with_offsets() {
+    mut data: []u8 = []
+    for i in 1..6 {
+        v := i
+        data.push(u8(v))
+    }
+    expected := "00000000  01 02  |..|\n00000002  03 04  |..|\n00000004  05     |.|\n"
+    assert(hexdump.dump(&data, 2) == expected)
+}
+
+@test fn dump_clamps_bad_widths() {
+    mut data: []u8 = []
+    data.push(u8(7))
+    data.push(b'A')
+    assert(hexdump.dump(&data, 0) == "00000000  07  |.|\n00000001  41  |A|\n")
+    assert(hexdump.dump(&data, 999) == hexdump.dump(&data, 64))
+}
+
+@test fn dump_empty_input_is_empty() {
+    empty: []u8 = []
+    assert(hexdump.dump(&empty, 16) == "")
+}

@@ -1,0 +1,37 @@
+capability filesystem
+
+import std.fs as fs
+import std.text as text
+import sys
+
+pub fn candidates(dir: string, suffix: string) -> []string {
+    if suffix.len == 0 { return [] }
+    listed := fs.list_dir(dir)
+    if !listed.ok { return [] }
+    mut out: []string = []
+    for name in listed.entries {
+        if !text.ends_with(name, suffix) { continue }
+        info := sys.metadata(dir + "/" + name)
+        if info.ok && sys.file_kind(info) == .File {
+            out.push(dir + "/" + name.clone())
+        }
+    }
+    out
+}
+
+pub fn remove_all_files(paths: &[]string) -> Result<i32, string> {
+    mut removed := 0
+    mut failed := 0
+    for path in paths {
+        gone := sys.remove_file(path)
+        if gone.ok {
+            removed += 1
+        } else {
+            failed += 1
+        }
+    }
+    if paths.len > 0 && removed == 0 && failed > 0 {
+        return .Err("could not remove any of " + paths.len.str() + " file(s)")
+    }
+    .Ok(removed)
+}

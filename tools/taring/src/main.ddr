@@ -1,0 +1,21 @@
+import sys
+
+import taring
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: taring NdM[+K|-K]    e.g. taring 2d6+3, taring d20")
+    return 2
+}
+
+fn main() -> i32 {
+    if sys.arg_count() != 2 { return usage() }
+    match taring.parse_dice(sys.arg(1)) {
+        .Ok(dice) => {
+            match taring.roll(&dice) {
+                .Ok(v) => { print(v.str()); return 0 },
+                .Err(e) => { _ := sys.eprint("taring: " + e.clone()); return 1 },
+            }
+        },
+        .Err(e) => { _ := sys.eprint("taring: " + e.clone()); return 1 },
+    }
+}

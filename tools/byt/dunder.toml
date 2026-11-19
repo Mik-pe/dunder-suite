@@ -1,0 +1,3 @@
+name = "byt"
+root = "src/main.ddr"
+test_root = "tests/suite.ddr"

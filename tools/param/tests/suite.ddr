@@ -1,0 +1,77 @@
+import ..src.param as param
+
+@test fn decode_percent_handles_plus_and_escapes() {
+    match param.decode_percent("x%20y+a") {
+        .Ok(v) => { assert(v == "x y a") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match param.decode_percent("%C3%A9") {
+        .Ok(v) => { assert(v == "é") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match param.decode_percent("%2f") {
+        .Ok(v) => { assert(v == "/") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    assert(param.decode_percent("a=%zz").is_err())
+    assert(param.decode_percent("trailing%2").is_err())
+    assert(param.decode_percent("%2G0").is_err())
+}
+
+@test fn encode_percent_keeps_unreserved_and_escapes_rest() {
+    assert(param.encode_percent("aZ09-._~") == "aZ09-._~")
+    assert(param.encode_percent("a b/c") == "a%20b%2Fc")
+    assert(param.encode_percent("é") == "%C3%A9")
+    assert(param.encode_percent("a&b=c") == "a%26b%3Dc")
+    assert(param.encode_percent("a+b") == "a%2Bb")
+}
+
+@test fn parse_query_builds_pretty_json_object() {
+    match param.parse_query("a=1&b=x%20y") {
+        .Ok(out) => { assert(out == "{\n  \"a\": \"1\",\n  \"b\": \"x y\"\n}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match param.parse_query("flag&b=2") {
+        .Ok(out) => { assert(out == "{\n  \"flag\": \"\",\n  \"b\": \"2\"\n}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match param.parse_query("") {
+        .Ok(out) => { assert(out == "{}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn repeated_keys_become_arrays() {
+    match param.parse_query("a=1&a=2&a=3&b=z") {
+        .Ok(out) => {
+            assert(out == "{\n  \"a\": [\n    \"1\",\n    \"2\",\n    \"3\"\n  ],\n  \"b\": \"z\"\n}")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn build_query_encodes_values_and_expands_arrays() {
+    match param.build_query("{\"a\":\"1\",\"b\":\"x y\",\"k\":[\"1\",\"2\"]}") {
+        .Ok(qs) => { assert(qs == "a=1&b=x%20y&k=1&k=2") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    assert(param.build_query("{\"a\": 1}").is_err())
+    assert(param.build_query("[1]").is_err())
+    assert(param.build_query("{\"k\": [1]}").is_err())
+    match param.build_query("{}") {
+        .Ok(qs) => { assert(qs == "") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn roundtrip_preserves_data() {
+    match param.parse_query("k=v%2Fw&s=x%20y") {
+        .Ok(obj) => {
+            match param.build_query(obj.clone()) {
+                .Ok(qs) => { assert(qs == "k=v%2Fw&s=x%20y") },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

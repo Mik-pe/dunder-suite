@@ -1,0 +1,44 @@
+import sys
+
+import slug
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: slug TEXT...")
+    _ := sys.eprint("  slugify each argument; with no arguments, slugify each line of stdin")
+    _ := sys.eprint("  keeps ASCII a-z0-9 runs, everything else collapses to single '-'")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut args: []string = []
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--help" || a == "-h" {
+            return usage()
+        }
+        if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("slug: unknown flag " + a)
+            return 2
+        }
+        args.push(a.clone())
+        i += 1
+    }
+
+    if args.len > 0 {
+        for a in args {
+            print(slug.slugify(a))
+        }
+        return 0
+    }
+    content := sys.read_text("/dev/stdin")
+    if !content.ok {
+        _ := sys.eprint("slug: cannot read stdin: " + sys.error_message(content.error))
+        return 1
+    }
+    for line in slug.slugify_lines(content.value) {
+        print(line)
+    }
+    return 0
+}

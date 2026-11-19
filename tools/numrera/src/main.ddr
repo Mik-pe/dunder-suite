@@ -1,0 +1,60 @@
+import std.parse as parse
+import sys
+
+import numrera
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: numrera [-s N] [-w W] [FILE]")
+    _ := sys.eprint("  number lines starting at N (default 1)")
+    _ := sys.eprint("  -s N   first line number (default 1)")
+    _ := sys.eprint("  -w W   number field width, right-aligned (default 6)")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut start := 1
+    mut width := 6
+    mut file_arg := "-"
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-s" {
+            if i + 1 >= count { _ := sys.eprint("numrera: missing value after -s"); return 2 }
+            i += 1
+            r := parse.integer(sys.arg(i))
+            if !r.ok || r.value < -1000000000 || r.value > 1000000000 {
+                _ := sys.eprint("numrera: -s must be an integer")
+                return 2
+            }
+            start = i32(r.value)
+        } else if a == "-w" {
+            if i + 1 >= count { _ := sys.eprint("numrera: missing value after -w"); return 2 }
+            i += 1
+            r := parse.integer(sys.arg(i))
+            if !r.ok || r.value < 1 || r.value > 18 {
+                _ := sys.eprint("numrera: -w must be an integer in 1..18")
+                return 2
+            }
+            width = i32(r.value)
+        } else if a == "--help" || a == "-h" {
+            return usage()
+        } else if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("numrera: unknown flag " + a)
+            return 2
+        } else {
+            file_arg = a.clone()
+        }
+        i += 1
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("numrera: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    lines := numrera.to_lines(content.value)
+    print(numrera.number_lines(&lines, start, width))
+    return 0
+}

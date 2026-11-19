@@ -1,0 +1,47 @@
+import std.array as array
+import std.math as math
+import std.parse as parse
+
+fn compare_text(a: &string, b: &string) -> Ordering {
+    if a < b { return .Less }
+    if a > b { return .Greater }
+    .Equal
+}
+
+fn compare_numeric(a: &string, b: &string) -> Ordering {
+    match parse.value<f64>(a) {
+        .Ok(x) => {
+            match parse.value<f64>(b) {
+                .Ok(y) => { math.total_cmp_f64(&x, &y) },
+                .Err(_) => { compare_text(a, b) },
+            }
+        },
+        .Err(_) => { compare_text(a, b) },
+    }
+}
+
+pub fn sort_lines(lines: &[]string, numeric: bool, reverse: bool, unique: bool) -> []string {
+    mut head: []string = []
+    mut tail: []string = []
+    for line in lines {
+        if numeric && parse.value<f64>(line).is_err() {
+            tail.push(line.clone())
+        } else {
+            head.push(line.clone())
+        }
+    }
+    if numeric {
+        array.sort_by<string>(&mut head, compare_numeric)
+    } else {
+        array.sort<string>(&mut head)
+    }
+
+    mut result: []string = []
+    for line in head {
+        if unique && result.len > 0 && result[result.len - 1] == line { continue }
+        result.push(line.clone())
+    }
+    if reverse { array.reverse<string>(&mut result) }
+    for line in tail { result.push(line.clone()) }
+    result
+}

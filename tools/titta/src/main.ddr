@@ -1,0 +1,93 @@
+capability process
+
+import std.process as process
+import std.text as text
+import sys
+
+import titta
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: titta [--interval-ms N] [--exec CMD] PATH")
+    _ := sys.eprint("  --interval-ms N   polling interval (default 500, min 10)")
+    _ := sys.eprint("  --exec CMD        run CMD (split on spaces) after the change")
+    _ := sys.eprint("  --once            accepted for compatibility; watching always")
+    _ := sys.eprint("                    ends after the first size change")
+    _ := sys.eprint("watches PATH until its size changes, then prints")
+    _ := sys.eprint("`changed: <path> size <old> -> <new>` and exits")
+    return 2
+}
+
+fn tail_args(args: &[]string) -> []string {
+    mut out: []string = []
+    for i in 1..args.len { out.push(args[i].clone()) }
+    out
+}
+
+fn first_arg(args: &[]string) -> string {
+    args[0].clone()
+}
+
+fn run_command(cmd: string) -> i32 {
+    parts := text.split(cmd, " ")
+    mut args: []string = []
+    for p in parts {
+        trimmed := text.trim(p)
+        if trimmed.len > 0 { args.push(trimmed.clone()) }
+    }
+    if args.len == 0 {
+        _ := sys.eprint("titta: --exec needs a command")
+        return 2
+    }
+    mut command := process.Command::new(first_arg(&args), tail_args(&args))
+    command.inherit_stdio()
+    output := command.exec()
+    if !output.succeeded() {
+        _ := sys.eprint("titta: command failed with exit code " + output.code.str())
+        return 1
+    }
+    0
+}
+
+fn main() -> i32 {
+    mut interval: i64 = 500
+    mut exec_cmd := ""
+    mut path := ""
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--interval-ms" {
+            if i + 1 >= count { _ := sys.eprint("titta: missing value after --interval-ms"); return 2 }
+            i += 1
+            match titta.parse_ms("--interval-ms", sys.arg(i)) {
+                .Ok(v) => { interval = v },
+                .Err(e) => { _ := sys.eprint("titta: " + e); return 2 },
+            }
+        } else if a == "--exec" {
+            if i + 1 >= count { _ := sys.eprint("titta: missing value after --exec"); return 2 }
+            i += 1
+            exec_cmd = sys.arg(i)
+        } else if a == "--once" {
+            // watching already ends after the first change
+        } else if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("titta: unknown flag " + a)
+            return 2
+        } else if path.len == 0 {
+            path = a.clone()
+        } else {
+            _ := sys.eprint("titta: unexpected argument " + a)
+            return 2
+        }
+        i += 1
+    }
+    if path.len == 0 { return usage() }
+
+    match titta.wait_for_change(path, interval, 0) {
+        .Ok(pair) => {
+            print(f"changed: {path} size {pair.0} -> {pair.1}")
+        },
+        .Err(e) => { _ := sys.eprint("titta: " + e); return 1 },
+    }
+    if exec_cmd.len > 0 { return run_command(exec_cmd) }
+    return 0
+}

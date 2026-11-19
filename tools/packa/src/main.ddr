@@ -1,0 +1,44 @@
+import std.text as text
+import sys
+
+import packa
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: packa [FILE...]")
+    _ := sys.eprint("  JSON minifier: parse and re-emit with no whitespace; reads stdin when no FILE is given")
+    return 2
+}
+
+fn main() -> i32 {
+    mut positional: []string = []
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("packa: unknown flag " + a)
+            return 2
+        } else {
+            positional.push(a.clone())
+        }
+        i += 1
+    }
+    if positional.len == 0 { positional.push("/dev/stdin") }
+
+    mut failed := false
+    for path in positional {
+        content := sys.read_text(path.clone())
+        if !content.ok {
+            _ := sys.eprint("packa: cannot read " + path + ": " + sys.error_message(content.error))
+            failed = true
+            continue
+        }
+        mut payload := content.value
+        match packa.minify(payload) {
+            .Ok(out) => { print(out) },
+            .Err(e) => { _ := sys.eprint("packa: " + path + ": " + e); failed = true },
+        }
+    }
+    if failed { return 1 }
+    return 0
+}

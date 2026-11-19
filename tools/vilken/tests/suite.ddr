@@ -1,0 +1,58 @@
+capability filesystem
+
+import std.fs as fs
+import std.sys as sys
+
+import ..src.vilken as vilken
+
+fn make_bin() -> Result<string, string> {
+    dir := fs.temp_dir("vilken-suite-")
+    if !dir.ok { return .Err("temp_dir failed") }
+    bin := dir.value
+    _ := sys.write_text(bin + "/tool", "#!/bin/sh\n")
+    _ := sys.write_text(bin + "/other", "#!/bin/sh\n")
+    _ := sys.mkdir(bin + "/not-a-file")
+    .Ok(bin)
+}
+
+@test fn search_path_finds_regular_files_and_skips_empty_elements() {
+    match make_bin() {
+        .Ok(bin) => {
+            defer { _ := fs.remove_all(bin) }
+            pv := "/no/such/dir::" + bin + "::" + bin + ":"
+            found := vilken.search_path(pv, "tool")
+            assert(found.len == 1)
+            assert(found[0] == bin + "/tool")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn search_path_ignores_directories_and_missing_names() {
+    match make_bin() {
+        .Ok(bin) => {
+            defer { _ := fs.remove_all(bin) }
+            assert(vilken.search_path(bin, "not-a-file").len == 0)
+            assert(vilken.search_path(bin, "missing").len == 0)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn search_path_handles_trailing_slashes_and_orders_results() {
+    match make_bin() {
+        .Ok(bin) => {
+            defer { _ := fs.remove_all(bin) }
+            other := fs.temp_dir("vilken-other-")
+            if !other.ok { assert(false); return }
+            defer { _ := fs.remove_all(other.value) }
+            _ := sys.write_text(other.value + "/tool", "#!/bin/sh\n")
+            pv := bin + ":" + other.value + "/:" + bin + "/"
+            found := vilken.search_path(pv, "tool")
+            assert(found.len == 2)
+            assert(found[0] == bin + "/tool")
+            assert(found[1] == other.value + "/tool")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

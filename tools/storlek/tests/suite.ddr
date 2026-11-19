@@ -1,0 +1,67 @@
+capability filesystem
+
+import std.fs as fs
+import std.sys as sys
+
+import ..src.storlek as storlek
+
+fn make_tree() -> Result<string, string> {
+    dir := fs.temp_dir("storlek-suite-")
+    if !dir.ok { return .Err("temp_dir failed") }
+    root := dir.value
+    _ := sys.write_text(root + "/big.txt", "12345")
+    _ := sys.write_text(root + "/small.txt", "ab")
+    _ := sys.mkdir(root + "/sub")
+    _ := sys.write_text(root + "/sub/mid.txt", "abcd")
+    _ := sys.write_text(root + "/sub/deep", "xyz")
+    .Ok(root)
+}
+
+fn row(path: string, bytes: i64) -> storlek.SizeRow {
+    storlek.SizeRow { path: path.clone(), bytes: bytes }
+}
+
+@test fn format_row_right_aligns_bytes_in_12_columns() {
+    assert(storlek.format_row(42, "x") == "          42  x")
+    assert(storlek.format_row(0, "p") == "           0  p")
+    assert(storlek.format_row(123456789012, "p") == "123456789012  p")
+}
+
+@test fn tree_size_sums_regular_files_recursively() {
+    match make_tree() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            assert(storlek.tree_size(root) == 14)
+            assert(storlek.tree_size(root + "/sub") == 7)
+            assert(storlek.tree_size(root + "/big.txt") == 5)
+            assert(storlek.tree_size(root + "/missing") == 0)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn rank_orders_largest_first_and_breaks_ties_by_path() {
+    mut rows: []storlek.SizeRow = []
+    rows.push(row("/c", 5))
+    rows.push(row("/a", 9))
+    rows.push(row("/b", 5))
+    rows.push(row("/d", 1))
+    ranked := storlek.rank(rows, 10)
+    assert(ranked.len == 4)
+    assert(ranked[0].path == "/a")
+    assert(ranked[1].path == "/b")
+    assert(ranked[2].path == "/c")
+    assert(ranked[3].path == "/d")
+    assert(ranked[0].bytes == 9)
+}
+
+@test fn rank_truncates_to_the_limit() {
+    mut rows: []storlek.SizeRow = []
+    rows.push(row("/a", 1))
+    rows.push(row("/b", 2))
+    rows.push(row("/c", 3))
+    top := storlek.rank(rows, 2)
+    assert(top.len == 2)
+    assert(top[0].path == "/c")
+    assert(top[1].path == "/b")
+}

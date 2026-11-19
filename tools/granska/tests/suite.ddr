@@ -1,0 +1,74 @@
+capability filesystem
+
+import std.fs as fs
+import sys
+
+import ..src.granska as granska
+
+@test fn marker_in_line_matches_words_case_insensitively() {
+    assert(granska.marker_in_line("fix this TODO") == "TODO")
+    assert(granska.marker_in_line("todo: later") == "TODO")
+    assert(granska.marker_in_line("a FIXME b") == "FIXME")
+    assert(granska.marker_in_line("see xxx below") == "XXX")
+    assert(granska.marker_in_line("total hack!") == "HACK")
+    assert(granska.marker_in_line("nothing here") == "")
+}
+
+@test fn marker_in_line_requires_whole_words() {
+    assert(granska.marker_in_line("TODOING stuff") == "")
+    assert(granska.marker_in_line("myTODO") == "")
+    assert(granska.marker_in_line("x-TODO-y") == "TODO")
+    assert(granska.marker_in_line("TODO/FIXME both") == "TODO")
+}
+
+@test fn scan_file_reports_line_numbers_and_text() {
+    dir := fs.temp_dir("granska-suite-")
+    assert(dir.ok)
+    path := dir.value + "/sample.md"
+    wrote := sys.write_text(path, "clean line\nTODO: write tests\nalso fine\nfixme here\n")
+    assert(wrote.ok)
+    match granska.scan_file(path) {
+        .Ok(markers) => {
+            assert(markers.len == 2)
+            assert(markers[0].kind == "TODO" && markers[0].line == 2)
+            assert(markers[1].kind == "FIXME" && markers[1].line == 4)
+            assert(markers[0].text == "TODO: write tests")
+            assert(markers[0].path == path)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    _ := sys.remove_file(path)
+    _ := fs.remove_all(dir.value)
+}
+
+@test fn scan_file_errors_on_missing_file() {
+    match granska.scan_file("/nonexistent/granska/none.txt") {
+        .Ok(markers) => { assert(markers.len >= 0); assert(false) },
+        .Err(e) => { assert(e.len > 0) },
+    }
+}
+
+@test fn scan_paths_walks_and_skips_hidden_and_other_exts() {
+    dir := fs.temp_dir("granska-walk-")
+    assert(dir.ok)
+    root := dir.value
+    sub := root + "/sub"
+    _ := fs.mkdir_all(sub)
+    _ := sys.write_text(root + "/a.md", "one\nTODO x\n")
+    _ := sys.write_text(sub + "/b.txt", "hack!\n")
+    _ := sys.write_text(root + "/skip.rs", "TODO not scanned\n")
+    _ := fs.mkdir_all(root + "/.hidden")
+    _ := sys.write_text(root + "/.hidden/c.md", "TODO hidden\n")
+
+    paths: []string = [root.clone()]
+    match granska.scan_paths(&paths) {
+        .Ok(markers) => {
+            assert(markers.len == 2)
+            assert(granska.count_files(&markers) == 2)
+            assert(markers[0].path == root + "/a.md" || markers[0].path == root + "/sub/b.txt")
+            assert(markers[1].kind == "TODO" || markers[1].kind == "HACK")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    _ := fs.remove_all(root)
+}

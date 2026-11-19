@@ -1,0 +1,29 @@
+import std.text as text
+
+pub fn to_lines(content: string) -> []string {
+    mut lines: []string = []
+    parts := text.split(content, "\n")
+    last := parts.len - 1
+    mut i := 0
+    for part in parts {
+        if !(i == last && part.len == 0) {
+            lines.push(part.clone())
+        }
+        i += 1
+    }
+    lines
+}
+
+pub fn field(line: string, sep: string, n: i32) -> Result<string, string> {
+    if n < 1 {
+        return .Err(f"field number must be >= 1, got {n}")
+    }
+    if sep.len == 0 {
+        return .Err("separator must not be empty")
+    }
+    parts := text.split(line, sep)
+    if n > parts.len {
+        return .Err(f"line has {parts.len} field(s), wanted {n}")
+    }
+    .Ok(parts[n - 1].clone())
+}

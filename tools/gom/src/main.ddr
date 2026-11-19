@@ -1,0 +1,53 @@
+import std.text as text
+import sys
+
+import gom
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: gom encrypt IN OUT    passphrase on stdin line 1, confirm line 2")
+    _ := sys.eprint("       gom decrypt IN OUT    passphrase on stdin line 1")
+    return 2
+}
+
+// Read all of stdin and hand back line 1 (passphrase) and line 2 (confirm,
+// empty when absent).
+fn read_passphrase_lines() -> Result<(string, string), string> {
+    data := sys.read_text("/dev/stdin")
+    if !data.ok { return .Err("cannot read passphrase from stdin: " + sys.error_message(data.error)) }
+    lines := text.split(data.value, "\n")
+    mut first := ""
+    mut second := ""
+    if lines.len > 0 { first = lines[0].clone() }
+    if lines.len > 1 { second = lines[1].clone() }
+    .Ok((first, second))
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count != 4 { return usage() }
+    mode := sys.arg(1)
+    if mode != "encrypt" && mode != "decrypt" {
+        _ := sys.eprint("gom: unknown mode '" + mode + "'")
+        return 2
+    }
+    path_in := sys.arg(2)
+    path_out := sys.arg(3)
+
+    match read_passphrase_lines() {
+        .Err(e) => { _ := sys.eprint("gom: " + e); return 1 },
+        .Ok(pair) => {
+            if mode == "encrypt" {
+                if pair.0.len == 0 { _ := sys.eprint("gom: passphrase must not be empty"); return 1 }
+                if pair.0 != pair.1 { _ := sys.eprint("gom: passphrases do not match"); return 1 }
+                match gom.encrypt_to(path_in, path_out, pair.0) {
+                    .Ok => { return 0 },
+                    .Err(e) => { _ := sys.eprint("gom: " + e); return 1 },
+                }
+            }
+            match gom.decrypt_to(path_in, path_out, pair.0) {
+                .Ok => { return 0 },
+                .Err(e) => { _ := sys.eprint("gom: " + e); return 1 },
+            }
+        },
+    }
+}

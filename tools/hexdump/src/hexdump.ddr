@@ -1,0 +1,51 @@
+// hexdump — render file bytes as offset/hex/ascii rows.
+
+import std.bytes as bytes
+
+fn printable(b: u8) -> bool {
+    b >= 32 && b <= 126
+}
+
+pub fn render_row(offset: i64, row: &[]u8, width: i32) -> string {
+    mut out: []u8 = []
+    bytes.append_utf8(&mut out, f"{offset:08x}")
+    bytes.append_utf8(&mut out, "  ")
+    for i in 0..width {
+        if i > 0 { out.push(b' ') }
+        if i < row.len {
+            v := i32(row[i])
+            bytes.append_utf8(&mut out, f"{v:02x}")
+        } else {
+            bytes.append_utf8(&mut out, "  ")
+        }
+    }
+    bytes.append_utf8(&mut out, "  |")
+    for i in 0..row.len {
+        if printable(row[i]) {
+            out.push(row[i])
+        } else {
+            out.push(b'.')
+        }
+    }
+    bytes.append_utf8(&mut out, "|")
+    bytes.decode(&out).value
+}
+
+pub fn dump(data: &[]u8, width: i32) -> string {
+    mut w := width
+    if w < 1 { w = 1 }
+    if w > 64 { w = 64 }
+    mut out: []u8 = []
+    mut at := 0
+    while at < data.len {
+        mut row: []u8 = []
+        while row.len < w && at < data.len {
+            row.push(data[at])
+            at += 1
+        }
+        rendered := render_row(i64(at - row.len), &row, w)
+        bytes.append_utf8(&mut out, rendered)
+        bytes.append_utf8(&mut out, "\n")
+    }
+    bytes.decode(&out).value
+}

@@ -1,0 +1,146 @@
+import std.bytes as bytes
+import std.json as json
+import std.text as text
+
+fn hex_value(b: i32) -> i32 {
+    if b >= 48 && b <= 57 { return b - 48 }
+    if b >= 97 && b <= 102 { return b - 87 }
+    if b >= 65 && b <= 70 { return b - 55 }
+    -1
+}
+
+pub fn decode_percent(s: &string) -> Result<string, string> {
+    data := s.bytes()
+    mut out: []u8 = []
+    mut i := 0
+    while i < data.len {
+        b := data[i]
+        if b == 43 { out.push(32); i += 1; continue }
+        if b == 37 {
+            if i + 2 >= data.len { return .Err(f"truncated percent escape at byte {i}") }
+            hi := hex_value(data[i + 1])
+            lo := hex_value(data[i + 2])
+            if hi < 0 || lo < 0 { return .Err(f"invalid percent escape at byte {i}") }
+            out.push(u8(hi * 16 + lo))
+            i += 3
+            continue
+        }
+        out.push(u8(b))
+        i += 1
+    }
+    .Ok(bytes.decode(&out).value)
+}
+
+fn hex_digit(v: i32) -> u8 {
+    if v < 10 { return u8(48 + v) }
+    u8(65 + v - 10)
+}
+
+pub fn encode_percent(s: &string) -> string {
+    mut out: []u8 = []
+    for b in s.bytes() {
+        if (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57) || b == 45 || b == 46 || b == 95 || b == 126 {
+            out.push(u8(b))
+        } else {
+            out.push(37)
+            out.push(hex_digit(i32(b) / 16))
+            out.push(hex_digit(i32(b) % 16))
+        }
+    }
+    bytes.decode(&out).value
+}
+
+pub fn parse_query(query: string) -> Result<string, string> {
+    segments := text.split(query, "&")
+    mut keys: []string = []
+    mut values: [][]string = []
+    for seg in segments {
+        if seg.len == 0 { continue }
+        eq := text.find(seg, "=")
+        mut raw_key := seg.clone()
+        mut raw_value := ""
+        if eq >= 0 {
+            raw_key = seg[0..eq]
+            raw_value = seg[eq + 1..seg.len]
+        }
+        mut decoded_key := ""
+        mut decoded_value := ""
+        match decode_percent(&raw_key) {
+            .Ok(k) => { decoded_key = k.clone() },
+            .Err(e) => { return .Err(e) },
+        }
+        match decode_percent(&raw_value) {
+            .Ok(v) => { decoded_value = v.clone() },
+            .Err(e) => { return .Err(e) },
+        }
+        mut idx := -1
+        for existing in 0..keys.len {
+            if keys[existing] == decoded_key { idx = existing }
+        }
+        if idx < 0 {
+            keys.push(decoded_key.clone())
+            values.push([decoded_value.clone()])
+        } else {
+            values[idx].push(decoded_value.clone())
+        }
+    }
+    if keys.len == 0 { return .Ok("{}") }
+
+    mut out: []u8 = []
+    bytes.append_utf8(&mut out, "{\n")
+    for k in 0..keys.len {
+        if k > 0 { bytes.append_utf8(&mut out, ",\n") }
+        bytes.append_utf8(&mut out, "  ")
+        bytes.append_utf8(&mut out, json.quote(keys[k]))
+        bytes.append_utf8(&mut out, ": ")
+        if values[k].len == 1 {
+            bytes.append_utf8(&mut out, json.quote(values[k][0]))
+        } else {
+            bytes.append_utf8(&mut out, "[\n")
+            for v in 0..values[k].len {
+                if v > 0 { bytes.append_utf8(&mut out, ",\n") }
+                bytes.append_utf8(&mut out, "    ")
+                bytes.append_utf8(&mut out, json.quote(values[k][v]))
+            }
+            bytes.append_utf8(&mut out, "\n  ]")
+        }
+    }
+    bytes.append_utf8(&mut out, "\n}")
+    .Ok(bytes.decode(&out).value)
+}
+
+pub fn build_query(json_text: string) -> Result<string, string> {
+    doc := json.Doc::parse_text(json_text)
+    if !doc.ok { return .Err(f"{doc.error} at byte {doc.offset}") }
+    if doc.kind(doc.root) != .Object { return .Err("input must be a JSON object") }
+    mut pairs: []string = []
+    for i in 0..doc.count(doc.root) {
+        key := doc.key_at(doc.root, i)
+        if !key.ok { return .Err("undecodable key") }
+        node := doc.val_at(doc.root, i)
+        kind := doc.kind(node)
+        if kind == .String {
+            value := doc.as_str(node)
+            if !value.ok { return .Err("undecodable string value") }
+            pairs.push(encode_percent(key.value) + "=" + encode_percent(value.value))
+        } else if kind == .Array {
+            for j in 0..doc.count(node) {
+                item := doc.at(node, j)
+                if doc.kind(item) != .String { return .Err("arrays may only contain strings") }
+                value := doc.as_str(item)
+                if !value.ok { return .Err("undecodable string value") }
+                pairs.push(encode_percent(key.value) + "=" + encode_percent(value.value))
+            }
+        } else {
+            return .Err("values must be strings or arrays of strings")
+        }
+    }
+    mut out := ""
+    mut first := true
+    for pair in pairs {
+        if !first { out = out + "&" }
+        first = false
+        out = out + pair
+    }
+    .Ok(out)
+}

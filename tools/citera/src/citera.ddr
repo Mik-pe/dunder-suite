@@ -1,0 +1,18 @@
+import std.json as json
+
+// JSON string quoting: quote_line renders one line as a valid JSON string;
+// unquote_line parses it back by wrapping the input in quotes and running
+// the real JSON parser over it.
+
+pub fn quote_line(s: string) -> string {
+    json.quote(s.clone())
+}
+
+pub fn unquote_line(s: string) -> Result<string, string> {
+    doc := json.Doc::parse_text("\"" + s.clone() + "\"")
+    if !doc.ok { return .Err("invalid JSON string: " + doc.error) }
+    if doc.kind(doc.root) != .String { return .Err("not a JSON string") }
+    value := doc.as_str(doc.root)
+    if !value.ok { return .Err("not a JSON string") }
+    .Ok(value.value)
+}

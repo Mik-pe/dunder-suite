@@ -1,0 +1,78 @@
+capability filesystem
+
+import std.fs as fs
+import std.sys as sys
+
+import ..src.tom as tom
+
+fn make_dir() -> Result<string, string> {
+    dir := fs.temp_dir("tom-suite-")
+    if !dir.ok { return .Err("temp_dir failed") }
+    root := dir.value
+    _ := sys.write_text(root + "/keep.txt", "stay")
+    _ := sys.write_text(root + "/a.tmp", "x")
+    _ := sys.write_text(root + "/b.tmp", "y")
+    _ := sys.write_text(root + "/c.old", "z")
+    _ := sys.mkdir(root + "/dir.tmp")
+    .Ok(root)
+}
+
+@test fn candidates_lists_sorted_regular_files_with_suffix() {
+    match make_dir() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            found := tom.candidates(root, ".tmp")
+            assert(found.len == 2)
+            assert(found[0] == root + "/a.tmp")
+            assert(found[1] == root + "/b.tmp")
+            old := tom.candidates(root, ".old")
+            assert(old.len == 1 && old[0] == root + "/c.old")
+            assert(tom.candidates(root, ".missing").len == 0)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn candidates_rejects_empty_suffixes_and_bad_dirs() {
+    match make_dir() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            assert(tom.candidates(root, "").len == 0)
+            assert(tom.candidates(root + "/nope", ".tmp").len == 0)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn remove_all_files_deletes_and_counts() {
+    match make_dir() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            mut victims: []string = []
+            victims.push(root + "/a.tmp")
+            victims.push(root + "/b.tmp")
+            match tom.remove_all_files(&victims) {
+                .Ok(removed) => { assert(removed == 2) },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+            assert(!sys.metadata(root + "/a.tmp").ok)
+            assert(!sys.metadata(root + "/b.tmp").ok)
+            assert(sys.metadata(root + "/keep.txt").ok)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn remove_all_files_reports_full_failure_and_empty_success() {
+    mut missing: []string = []
+    missing.push("/no/such/file.tmp")
+    match tom.remove_all_files(&missing) {
+        .Ok(n) => { assert(n >= 0); assert(false) },
+        .Err(e) => { assert(e.len > 0) },
+    }
+    mut none: []string = []
+    match tom.remove_all_files(&none) {
+        .Ok(n) => { assert(n == 0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

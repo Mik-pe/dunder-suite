@@ -1,0 +1,144 @@
+// rakna — integer arithmetic expression evaluator.
+//
+// Grammar (recursive descent, spaces skipped between tokens):
+//   expr := term (('+'|'-') term)*
+//   term := factor (('*'|'/'|'%') factor)*
+//   factor := '-' factor | '(' expr ')' | number
+//
+// The parser threads a `Parsed { value, pos }` through pure functions
+// instead of mutating a cursor struct; kind 0 selects +/- (expr level),
+// kind 1 selects * / % (term level).
+
+struct Parsed {
+    value: i64,
+    pos: i32,
+}
+
+fn skip_spaces(src: string, from: i32) -> i32 {
+    mut at := from
+    while at < src.len {
+        b := src[at]
+        if b == 32 || b == 9 || b == 10 || b == 13 { at += 1 } else { return at }
+    }
+    at
+}
+
+fn parse_number(src: string, from: i32) -> Result<Parsed, string> {
+    mut value: i64 = 0
+    mut at := from
+    while at < src.len && src[at] >= 48 && src[at] <= 57 {
+        value = value * 10 + i64(src[at] - 48)
+        at += 1
+    }
+    if at == from { return .Err(f"expected a number at position {from}") }
+    .Ok(Parsed { value: value, pos: at })
+}
+
+fn apply_op(left: i64, op: i32, right: i64) -> Result<i64, string> {
+    if op == 43 { return .Ok(left + right) }
+    if op == 45 { return .Ok(left - right) }
+    if op == 42 { return .Ok(left * right) }
+    if op == 47 {
+        if right == 0 { return .Err("division by zero") }
+        return .Ok(left / right)
+    }
+    if right == 0 { return .Err("modulo by zero") }
+    .Ok(left % right)
+}
+
+fn find_op(src: string, from: i32, kind: i32) -> i32 {
+    at := skip_spaces(src, from)
+    if at >= src.len { return -1 }
+    b := src[at]
+    if kind == 0 {
+        if b == 43 || b == 45 { return at }
+    } else {
+        if b == 42 || b == 47 || b == 37 { return at }
+    }
+    -1
+}
+
+fn negate(inner: Result<Parsed, string>) -> Result<Parsed, string> {
+    match inner {
+        .Ok(p) => { .Ok(Parsed { value: -p.value, pos: p.pos }) },
+        .Err(e) => { .Err(e.clone()) },
+    }
+}
+
+fn close_paren(inner: Result<Parsed, string>, src: string) -> Result<Parsed, string> {
+    match inner {
+        .Ok(p) => {
+            at := skip_spaces(src, p.pos)
+            if at >= src.len || src[at] != 41 { return .Err("missing closing parenthesis") }
+            .Ok(Parsed { value: p.value, pos: at + 1 })
+        },
+        .Err(e) => { .Err(e.clone()) },
+    }
+}
+
+fn parse_factor(src: string, from: i32) -> Result<Parsed, string> {
+    at := skip_spaces(src, from)
+    if at >= src.len { return .Err("unexpected end of expression") }
+    b := src[at]
+    if b == 45 { return negate(parse_factor(src, at + 1)) }
+    if b == 40 { return close_paren(parse_expr(src, at + 1), src) }
+    parse_number(src, at)
+}
+
+fn next_part(src: string, from: i32, kind: i32) -> Result<Parsed, string> {
+    if kind == 0 { return parse_term(src, from) }
+    parse_factor(src, from)
+}
+
+// Left-associative chain of `kind` operators over next_part operands.
+fn parse_chain(src: string, from: i32, kind: i32) -> Result<Parsed, string> {
+    first := next_part(src, from, kind)
+    match first {
+        .Ok(init) => {
+            mut value := init.value
+            mut at := init.pos
+            mut failure := ""
+            mut op_at := find_op(src, at, kind)
+            while failure.len == 0 && op_at >= 0 {
+                right := next_part(src, op_at + 1, kind)
+                match right {
+                    .Ok(r) => {
+                        match apply_op(value, src[op_at], r.value) {
+                            .Ok(v) => {
+                                value = v
+                                at = r.pos
+                            },
+                            .Err(e) => { failure = e.clone() },
+                        }
+                    },
+                    .Err(e) => { failure = e.clone() },
+                }
+                op_at = find_op(src, at, kind)
+            }
+            if failure.len > 0 { return .Err(failure) }
+            .Ok(Parsed { value: value, pos: at })
+        },
+        .Err(e) => { .Err(e.clone()) },
+    }
+}
+
+fn parse_term(src: string, from: i32) -> Result<Parsed, string> {
+    parse_chain(src, from, 1)
+}
+
+fn parse_expr(src: string, from: i32) -> Result<Parsed, string> {
+    parse_chain(src, from, 0)
+}
+
+pub fn eval(expr: string) -> Result<i64, string> {
+    if expr.len == 0 { return .Err("empty expression") }
+    result := parse_expr(expr, 0)
+    match result {
+        .Ok(p) => {
+            rest := skip_spaces(expr, p.pos)
+            if rest < expr.len { return .Err(f"unexpected character at position {rest}") }
+            .Ok(p.value)
+        },
+        .Err(e) => { .Err(e.clone()) },
+    }
+}

@@ -1,0 +1,33 @@
+import std.text as text
+
+import ..src.validera as validera
+
+@test fn valid_documents_pass() {
+    assert(validera.validate("{\"a\": 1}").is_ok())
+    assert(validera.validate("[1, 2, 3]").is_ok())
+    assert(validera.validate("{\"nested\": {\"list\": [true, null, \"x\"]}}").is_ok())
+    assert(validera.validate("\"unicode: räksmörgås \\u00e5\"").is_ok())
+    assert(validera.validate("42").is_ok())
+    assert(validera.validate("{\"k\": \"escaped \\\"quote\\\" and \\\\ backslash\"}").is_ok())
+}
+
+@test fn invalid_documents_report_position() {
+    match validera.validate("{\"a\":1} garbage") {
+        .Err(msg) => {
+            assert(msg == "trailing characters after JSON value at byte 8")
+            assert(text.find(msg, "at byte") >= 0)
+        },
+        .Ok => { assert(false) },
+    }
+    assert(validera.validate("{\"a\": \"\\q\"}").is_err())
+    assert(validera.validate("[1, 2").is_err())
+    assert(validera.validate("{\"a\": 1").is_err())
+    assert(validera.validate("{\"a\" 1}").is_err())
+}
+
+@test fn empty_input_is_an_error() {
+    match validera.validate("") {
+        .Err(msg) => { assert(msg == "unexpected end of JSON input at byte 0") },
+        .Ok => { assert(false) },
+    }
+}

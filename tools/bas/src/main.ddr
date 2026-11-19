@@ -1,0 +1,51 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import bas
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: bas [--from 2|8|10|16] [--to 2|8|10|16] VALUE")
+    _ := sys.eprint("  converts VALUE between bases (default from 10, to 10)")
+    _ := sys.eprint("  e.g. bas --from 16 --to 10 ff   ->  255")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    mut from: i64 = 10
+    mut to: i64 = 10
+    mut value := ""
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--from" || a == "--to" {
+            if i + 1 >= count {
+                _ := sys.eprint("bas: missing value after " + a)
+                return 2
+            }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || !bas.valid_base(n.value) {
+                _ := sys.eprint("bas: base must be 2, 8, 10 or 16")
+                return 2
+            }
+            if a == "--from" { from = n.value } else { to = n.value }
+        } else if text.starts_with(a, "--") {
+            _ := sys.eprint("bas: unknown flag " + a)
+            return 2
+        } else if value.len == 0 {
+            value = a.clone()
+        } else {
+            _ := sys.eprint("bas: expected exactly one VALUE")
+            return 2
+        }
+        i += 1
+    }
+    if value.len == 0 { return usage() }
+    match bas.parse_in_base(value.clone(), from) {
+        .Ok(v) => { print(bas.format_base(v, to)); return 0 },
+        .Err(e) => { _ := sys.eprint("bas: " + e); return 1 },
+    }
+}

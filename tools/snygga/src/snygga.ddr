@@ -1,0 +1,77 @@
+import std.bytes as bytes
+import std.json as json
+
+fn pad(out: &mut []u8, depth: i32, width: i32) {
+    for _ in 0..depth * width { out.push(b' ') }
+}
+
+fn is_flat_array(doc: &json.Doc, node: i32) -> bool {
+    count := doc.count(node)
+    for i in 0..count {
+        kind := doc.kind(doc.at(node, i))
+        if kind == .Object || kind == .Array { return false }
+    }
+    true
+}
+
+fn write_scalar(doc: &json.Doc, node: i32, out: &mut []u8) {
+    if doc.kind(node) == .String {
+        bytes.append_utf8(&mut out, json.quote(doc.as_str(node).value))
+        return
+    }
+    bytes.append_utf8(&mut out, doc.raw_span(node))
+}
+
+fn write_pretty(doc: &json.Doc, node: i32, out: &mut []u8, depth: i32, width: i32, flat: bool) {
+    kind := doc.kind(node)
+    if kind == .Object {
+        count := doc.count(node)
+        if count == 0 { bytes.append_utf8(&mut out, "{}"); return }
+        bytes.append_utf8(&mut out, "{\n")
+        for i in 0..count {
+            if i > 0 { bytes.append_utf8(&mut out, ",\n") }
+            pad(&mut out, depth + 1, width)
+            key := doc.key_at(node, i)
+            if key.ok { bytes.append_utf8(&mut out, json.quote(key.value)) }
+            bytes.append_utf8(&mut out, ": ")
+            write_pretty(doc, doc.val_at(node, i), &mut out, depth + 1, width, flat)
+        }
+        bytes.append_utf8(&mut out, "\n")
+        pad(&mut out, depth, width)
+        bytes.append_utf8(&mut out, "}")
+        return
+    }
+    if kind == .Array {
+        count := doc.count(node)
+        if count == 0 { bytes.append_utf8(&mut out, "[]"); return }
+        if flat && is_flat_array(doc, node) {
+            bytes.append_utf8(&mut out, "[")
+            for i in 0..count {
+                if i > 0 { bytes.append_utf8(&mut out, ", ") }
+                write_scalar(doc, doc.at(node, i), &mut out)
+            }
+            bytes.append_utf8(&mut out, "]")
+            return
+        }
+        bytes.append_utf8(&mut out, "[\n")
+        for i in 0..count {
+            if i > 0 { bytes.append_utf8(&mut out, ",\n") }
+            pad(&mut out, depth + 1, width)
+            write_pretty(doc, doc.at(node, i), &mut out, depth + 1, width, flat)
+        }
+        bytes.append_utf8(&mut out, "\n")
+        pad(&mut out, depth, width)
+        bytes.append_utf8(&mut out, "]")
+        return
+    }
+    write_scalar(doc, node, &mut out)
+}
+
+pub fn pretty(json_text: string, indent: i32, flat_arrays: bool) -> Result<string, string> {
+    if indent < 0 || indent > 16 { return .Err("indent must be between 0 and 16") }
+    doc := json.Doc::parse_text(json_text)
+    if !doc.ok { return .Err(f"{doc.error} at byte {doc.offset}") }
+    mut out: []u8 = []
+    write_pretty(&doc, doc.root, &mut out, 0, indent, flat_arrays)
+    .Ok(bytes.decode(&out).value)
+}

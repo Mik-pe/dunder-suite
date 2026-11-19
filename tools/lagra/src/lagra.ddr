@@ -1,0 +1,75 @@
+import std.array as array
+import std.json as json
+import std.map as map
+import sys
+
+pub struct Store {
+    entries: map.Map<string, string>,
+}
+
+pub fn load(path: string) -> Result<Store, string> {
+    content := sys.read_text(path)
+    if !content.ok {
+        return .Ok(Store { entries: map.Map<string, string>::new() })
+    }
+    doc := json.Doc::parse_text(content.value)
+    if !doc.ok {
+        return .Err(path + " is not valid JSON: " + doc.error + " at byte " + doc.offset.str())
+    }
+    if doc.kind(doc.root) != .Object {
+        return .Err(path + " must contain a JSON object of key-value strings")
+    }
+    mut entries := map.Map<string, string>::new()
+    for i in 0..doc.count(doc.root) {
+        key := doc.key_at(doc.root, i)
+        if !key.ok { return .Err(path + " has an undecodable key") }
+        value := doc.as_str(doc.val_at(doc.root, i))
+        if !value.ok { return .Err("key " + key.value + " in " + path + " does not map to a string") }
+        entries.put(key.value.clone(), value.value.clone())
+    }
+    .Ok(Store { entries: entries })
+}
+
+pub fn save(store: &Store, path: string) -> Result<(), string> {
+    mut w := json.Writer::new()
+    w.object()
+    for name in store.keys_sorted() {
+        w.key(name)
+        w.string(store.entries.at(name))
+    }
+    w.end()
+    done := w.finish()
+    if !done.ok { return .Err("could not render store as JSON") }
+    written := sys.write_text(path, done.value + "\n")
+    if !written.ok {
+        return .Err("cannot write " + path + ": " + sys.error_message(written.error))
+    }
+    .Ok
+}
+
+impl Store {
+    pub fn len(&self) -> i32 {
+        self.entries.len()
+    }
+
+    pub fn get(&self, key: string) -> Result<string, string> {
+        if self.entries.contains(key) { return .Ok(self.entries.at(key).clone()) }
+        .Err("no key " + key)
+    }
+
+    pub fn set(&mut self, move key: string, move value: string) -> Result<(), string> {
+        if key.len == 0 { return .Err("key must not be empty") }
+        self.entries.put(move key, move value)
+        .Ok
+    }
+
+    pub fn remove(&mut self, key: string) -> bool {
+        self.entries.remove(key)
+    }
+
+    pub fn keys_sorted(&self) -> []string {
+        mut names := self.entries.keys()
+        array.sort<string>(&mut names)
+        names
+    }
+}

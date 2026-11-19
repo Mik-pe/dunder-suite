@@ -1,0 +1,30 @@
+import sys
+
+import stempel
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: stempel KEY FILE                     print hex HMAC-SHA256")
+    _ := sys.eprint("       stempel --verify KEY FILE HEX       verify, exit 0/1")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count == 5 && sys.arg(1) == "--verify" {
+        match stempel.verify_hex(sys.arg(2), sys.arg(3), sys.arg(4)) {
+            .Ok(good) => {
+                if good { print("stempel: OK"); return 0 }
+                print("stempel: FAIL")
+                return 1
+            },
+            .Err(e) => { _ := sys.eprint("stempel: " + e); return 1 },
+        }
+    }
+    if count == 3 && sys.arg(1) != "--verify" {
+        match stempel.hmac_hex(sys.arg(1), sys.arg(2)) {
+            .Ok(hex) => { print(hex); return 0 },
+            .Err(e) => { _ := sys.eprint("stempel: " + e); return 1 },
+        }
+    }
+    return usage()
+}

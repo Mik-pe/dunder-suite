@@ -1,0 +1,27 @@
+import ..src.numrera as numrera
+
+@test fn number_lines_prefixes_right_aligned_numbers() {
+    lines: []string = ["alpha", "beta"]
+    out := numrera.number_lines(&lines, 1, 6)
+    assert(out == "     1  alpha\n     2  beta")
+}
+
+@test fn number_lines_supports_start_and_width() {
+    lines: []string = ["x", "y", "z"]
+    out := numrera.number_lines(&lines, 9, 2)
+    assert(out == " 9  x\n10  y\n11  z")
+    single: []string = ["only"]
+    assert(numrera.number_lines(&single, 100, 3) == "100  only")
+}
+
+@test fn number_lines_handles_empty_input() {
+    empty: []string = []
+    assert(numrera.number_lines(&empty, 1, 6) == "")
+}
+
+@test fn pad_number_right_aligns_to_width() {
+    assert(numrera.pad_number(7, 4) == "   7")
+    assert(numrera.pad_number(1234, 4) == "1234")
+    assert(numrera.pad_number(12345, 2) == "12345")
+    assert(numrera.pad_number(0, 1) == "0")
+}

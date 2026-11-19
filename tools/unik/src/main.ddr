@@ -1,0 +1,42 @@
+import sys
+
+import unik
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: unik [-c] [FILE]")
+    _ := sys.eprint("  collapse consecutive duplicate lines")
+    _ := sys.eprint("  -c   prefix each line with its repeat count")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut show_counts := false
+    mut file_arg := "-"
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-c" {
+            show_counts = true
+        } else if a == "--help" || a == "-h" {
+            return usage()
+        } else if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("unik: unknown flag " + a)
+            return 2
+        } else {
+            file_arg = a.clone()
+        }
+        i += 1
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("unik: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    lines := unik.to_lines(content.value)
+    pairs := unik.collapse(&lines)
+    print(unik.render(&pairs, show_counts))
+    return 0
+}

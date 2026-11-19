@@ -1,0 +1,53 @@
+capability filesystem
+
+import std.fs as fs
+import std.sys as sys
+
+import ..src.byt as byt
+
+@test fn replace_in_filename_replaces_only_first_occurrence() {
+    match byt.replace_in_filename("/data/a-a.txt", "a", "b") {
+        .Ok(dest) => { assert(dest == "/data/b-a.txt") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match byt.replace_in_filename("/data/report.old.txt", ".old", "") {
+        .Ok(dest) => { assert(dest == "/data/report.txt") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn replace_in_filename_handles_bare_names_and_no_match() {
+    match byt.replace_in_filename("name.txt", "name", "other") {
+        .Ok(dest) => { assert(dest == "other.txt") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match byt.replace_in_filename("/data/keep.txt", "zzz", "y") {
+        .Ok(dest) => { assert(dest == "") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    assert(byt.replace_in_filename("/data/x.txt", "", "y").is_err())
+}
+
+@test fn replace_in_filename_only_touches_the_filename() {
+    match byt.replace_in_filename("/old/dir/old.txt", "old", "new") {
+        .Ok(dest) => { assert(dest == "/old/dir/new.txt") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn computed_targets_rename_for_real() {
+    dir := fs.temp_dir("byt-suite-")
+    if !dir.ok { assert(false); return }
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    _ := sys.write_text(root + "/draft-v1.txt", "body\n")
+    match byt.replace_in_filename(root + "/draft-v1.txt", "-v1", "-final") {
+        .Ok(dest) => {
+            renamed := sys.rename(root + "/draft-v1.txt", dest)
+            assert(renamed.ok)
+            assert(!sys.metadata(root + "/draft-v1.txt").ok)
+            assert(sys.metadata(root + "/draft-final.txt").ok)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

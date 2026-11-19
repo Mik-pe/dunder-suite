@@ -1,0 +1,73 @@
+import sys
+
+import dublett
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: dublett PATH...")
+    _ := sys.eprint("  PATH    file or directory to scan (recursive, hidden entries skipped)")
+    _ := sys.eprint("files are grouped by size, then by sha256 digest; only groups of")
+    _ := sys.eprint("2 or more identical files are printed, sorted by hash then path")
+    return 2
+}
+
+fn describe(hashed: &[]dublett.FileEntry, path: string) -> string {
+    mut digest := ""
+    mut size: i64 = 0
+    for e in hashed {
+        if e.path == path {
+            digest = e.digest.clone()
+            size = e.size
+        }
+    }
+    digest + "  " + size.str() + "  " + path
+}
+
+fn main() -> i32 {
+    mut paths: []string = []
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--" {
+            i += 1
+            break
+        }
+        if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("dublett: unknown flag " + a)
+            return 2
+        }
+        paths.push(a.clone())
+        i += 1
+    }
+    while i < count {
+        paths.push(sys.arg(i).clone())
+        i += 1
+    }
+    if paths.len == 0 { return usage() }
+
+    mut hashed: []dublett.FileEntry = []
+    for root in paths {
+        match dublett.collect_entries(root) {
+            .Ok(entries) => {
+                for c in dublett.size_candidates(&entries) {
+                    match dublett.file_digest(c.path) {
+                        .Ok(h) => { hashed.push(dublett.FileEntry { path: c.path.clone(), size: c.size, digest: h }) },
+                        .Err(_) => { },
+                    }
+                }
+            },
+            .Err(e) => { _ := sys.eprint("dublett: " + e); return 1 },
+        }
+    }
+
+    groups := dublett.group_by_digest(&hashed)
+    mut files := 0
+    for group in groups {
+        for p in group {
+            print(describe(&hashed, p))
+            files += 1
+        }
+    }
+    print(f"{groups.len} groups, {files} duplicate files")
+    return 0
+}

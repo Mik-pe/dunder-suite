@@ -1,0 +1,42 @@
+import std.text as text
+import sys
+
+import stats
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: stats NUMBER...    (with no numbers, reads stdin)")
+    _ := sys.eprint("  numbers may be separated by spaces, commas or newlines")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut input := ""
+    if count >= 2 {
+        mut i := 1
+        while i < count {
+            a := sys.arg(i)
+            if text.starts_with(a, "--") {
+                _ := sys.eprint("stats: unknown flag " + a)
+                return 2
+            }
+            input = input + a + " "
+            i += 1
+        }
+    } else {
+        stdin := sys.read_text("/dev/stdin")
+        if !stdin.ok {
+            _ := sys.eprint("stats: cannot read stdin: " + sys.error_message(stdin.error))
+            return 1
+        }
+        input = stdin.value
+    }
+    match stats.parse_numbers(input) {
+        .Ok(values) => {
+            report := stats.summarize(&values)
+            print(stats.render(&report))
+            return 0
+        },
+        .Err(e) => { _ := sys.eprint("stats: " + e.clone()); return 1 },
+    }
+}

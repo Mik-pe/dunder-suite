@@ -1,0 +1,31 @@
+import ..src.slug as slug
+
+@test fn slugify_lowercases_and_dashes() {
+    assert(slug.slugify("Some Title Here!") == "some-title-here")
+    assert(slug.slugify("Hello, World?") == "hello-world")
+    assert(slug.slugify("already-slug") == "already-slug")
+    assert(slug.slugify("CamelCase 42") == "camelcase-42")
+}
+
+@test fn slugify_collapses_and_trims_separators() {
+    assert(slug.slugify("  multiple   spaces  ") == "multiple-spaces")
+    assert(slug.slugify("---leading and trailing---") == "leading-and-trailing")
+    assert(slug.slugify("a!@#$%^&*b") == "a-b")
+    assert(slug.slugify("!!!") == "")
+    assert(slug.slugify("") == "")
+}
+
+@test fn slugify_drops_non_ascii_letters() {
+    assert(slug.slugify("hällö wörld") == "h-ll-w-rld")
+    assert(slug.slugify("日语 text") == "text")
+    assert(slug.slugify("café") == "caf")
+    assert(slug.slugify("ÅÄÖ") == "")
+}
+
+@test fn slugify_lines_processes_stdin_content() {
+    lines := slug.slugify_lines("Some Title\n\nHi There\n")
+    assert(lines.len == 3)
+    assert(lines[0] == "some-title")
+    assert(lines[1] == "")
+    assert(lines[2] == "hi-there")
+}

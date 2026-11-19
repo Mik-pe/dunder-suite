@@ -1,0 +1,102 @@
+capability filesystem
+
+import std.fs as fs
+import std.sys as sys
+
+import ..src.dublett as dublett
+
+fn entry(path: string, size: i64, digest: string) -> dublett.FileEntry {
+    dublett.FileEntry { path: path.clone(), size: size, digest: digest.clone() }
+}
+
+fn make_tree() -> Result<string, string> {
+    dir := fs.temp_dir("dublett-suite-")
+    if !dir.ok { return .Err("temp_dir failed") }
+    root := dir.value
+    _ := sys.write_text(root + "/one.txt", "same content\n")
+    _ := sys.write_text(root + "/two.txt", "same content\n")
+    _ := sys.write_text(root + "/other.txt", "different\n")
+    _ := sys.write_text(root + "/.hidden", "same content\n")
+    _ := sys.mkdir(root + "/sub")
+    _ := sys.write_text(root + "/sub/one.txt", "same content\n")
+    .Ok(root)
+}
+
+@test fn group_by_digest_groups_and_sorts_pure_entries() {
+    mut entries: []dublett.FileEntry = []
+    entries.push(entry("/b/y", 9, "bb"))
+    entries.push(entry("/a/second", 5, "aa"))
+    entries.push(entry("/c/only", 1, "cc"))
+    entries.push(entry("/a/first", 5, "aa"))
+    entries.push(entry("/b/x", 9, "bb"))
+    groups := dublett.group_by_digest(&entries)
+    assert(groups.len == 2)
+    assert(groups[0].len == 2)
+    assert(groups[0][0] == "/a/first")
+    assert(groups[0][1] == "/a/second")
+    assert(groups[1][0] == "/b/x")
+    assert(groups[1][1] == "/b/y")
+}
+
+@test fn group_by_digest_drops_unique_digests() {
+    mut entries: []dublett.FileEntry = []
+    entries.push(entry("/solo", 5, "aa"))
+    entries.push(entry("/other", 6, "bb"))
+    groups := dublett.group_by_digest(&entries)
+    assert(groups.len == 0)
+}
+
+@test fn size_candidates_keeps_only_repeated_sizes() {
+    mut entries: []dublett.FileEntry = []
+    entries.push(entry("/a", 1, ""))
+    entries.push(entry("/b", 2, ""))
+    entries.push(entry("/c", 2, ""))
+    entries.push(entry("/d", 3, ""))
+    entries.push(entry("/e", 3, ""))
+    kept := dublett.size_candidates(&entries)
+    assert(kept.len == 4)
+    assert(kept[0].path == "/b")
+    assert(kept[3].path == "/e")
+}
+
+@test fn file_digest_matches_known_sha256() {
+    match make_tree() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            match dublett.file_digest(root + "/one.txt") {
+                .Ok(h) => { assert(h == "f953bbd204bb867e48a6ff774cffa3dcffd02c6580e8f1d00c37dbbaa743d6c8") },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+            assert(dublett.file_digest(root + "/missing").is_err())
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn collect_and_group_finds_real_duplicates() {
+    match make_tree() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            match dublett.collect_entries(root) {
+                .Ok(entries) => {
+                    assert(entries.len == 4)
+                    mut hashed: []dublett.FileEntry = []
+                    for c in dublett.size_candidates(&entries) {
+                        match dublett.file_digest(c.path) {
+                            .Ok(h) => { hashed.push(dublett.FileEntry { path: c.path.clone(), size: c.size, digest: h }) },
+                            .Err(_) => { },
+                        }
+                    }
+                    groups := dublett.group_by_digest(&hashed)
+                    assert(groups.len == 1)
+                    assert(groups[0].len == 3)
+                    assert(groups[0][0] == root + "/one.txt")
+                    assert(groups[0][1] == root + "/sub/one.txt")
+                    assert(groups[0][2] == root + "/two.txt")
+                },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

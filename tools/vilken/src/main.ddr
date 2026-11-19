@@ -1,0 +1,52 @@
+capability process
+
+import std.process as process
+import std.text as text
+import sys
+
+import vilken
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: vilken NAME...")
+    _ := sys.eprint("  NAME    executable file name to look for in $PATH")
+    _ := sys.eprint("prints each matching absolute path (deduplicated, in order);")
+    _ := sys.eprint("exit 1 if any NAME has no regular-file match")
+    return 2
+}
+
+fn main() -> i32 {
+    mut names: []string = []
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("vilken: unknown flag " + a)
+            return 2
+        }
+        names.push(a.clone())
+        i += 1
+    }
+    if names.len == 0 { return usage() }
+
+    env := process.env("PATH")
+    if !env.ok {
+        _ := sys.eprint("vilken: cannot read PATH: " + sys.error_message(env.error))
+        return 1
+    }
+    path_value := env.value
+
+    mut missing := 0
+    for name in names {
+        found := vilken.search_path(path_value, name)
+        if found.len == 0 {
+            _ := sys.eprint("vilken: " + name + " not found in PATH")
+            missing += 1
+        }
+        for hit in found {
+            print(hit)
+        }
+    }
+    if missing > 0 { return 1 }
+    return 0
+}

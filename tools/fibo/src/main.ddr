@@ -1,0 +1,35 @@
+import std.array as array
+import std.parse as parse
+import sys
+
+import fibo
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: fibo N        first N Fibonacci numbers (N <= 90)")
+    _ := sys.eprint("       fibo nth N    just F(N), 1-based (N <= 92)")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count == 3 && sys.arg(1) == "nth" {
+        n := parse.integer(sys.arg(2))
+        if !n.ok {
+            _ := sys.eprint("fibo: invalid number: " + sys.arg(2))
+            return 1
+        }
+        match fibo.nth(i32(n.value)) {
+            .Ok(v) => { print(v.str()); return 0 },
+            .Err(e) => { _ := sys.eprint("fibo: " + e.clone()); return 1 },
+        }
+    }
+    if count != 2 { return usage() }
+    n := parse.integer(sys.arg(1))
+    if !n.ok || n.value < 1 || n.value > 90 {
+        _ := sys.eprint("fibo: N must be 1..90")
+        return 1
+    }
+    values := fibo.fibonacci(i32(n.value))
+    print(array.join<i64>(&values, " "))
+    return 0
+}

@@ -1,0 +1,56 @@
+import std.parse as parse
+import sys
+
+import versal
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: versal [-m upper|lower|title] [FILE]")
+    _ := sys.eprint("  convert ASCII letter case (default: upper)")
+    _ := sys.eprint("  -m upper|lower|title   title = first letter of each word")
+    _ := sys.eprint("  non-ASCII letters (åäö, ...) pass through unchanged")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut mode := "upper"
+    mut file_arg := "-"
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-m" {
+            if i + 1 >= count { _ := sys.eprint("versal: missing value after -m"); return 2 }
+            i += 1
+            mode = sys.arg(i)
+            if mode != "upper" && mode != "lower" && mode != "title" {
+                _ := sys.eprint("versal: -m must be upper, lower or title")
+                return 2
+            }
+        } else if a == "--help" || a == "-h" {
+            return usage()
+        } else if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("versal: unknown flag " + a)
+            return 2
+        } else {
+            file_arg = a.clone()
+        }
+        i += 1
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("versal: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    for line in versal.to_lines(content.value) {
+        if mode == "lower" {
+            print(versal.lower_ascii(line))
+        } else if mode == "title" {
+            print(versal.title_ascii(line))
+        } else {
+            print(versal.upper_ascii(line))
+        }
+    }
+    return 0
+}

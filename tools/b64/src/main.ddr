@@ -1,0 +1,72 @@
+import std.bytes as bytes
+import std.text as text
+import sys
+
+import b64
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: b64 encode [DATA | FILE | -]")
+    _ := sys.eprint("       b64 decode [DATA | FILE | -]")
+    _ := sys.eprint("  with no argument, or '-', reads stdin")
+    _ := sys.eprint("  an argument naming an existing file is read as a file, else used as data")
+    return 2
+}
+
+fn load_arg(arg: string) -> Result<[]u8, string> {
+    if arg == "-" {
+        read := sys.read_u8("/dev/stdin")
+        if !read.ok { return .Err("cannot read stdin: " + sys.error_message(read.error)) }
+        return .Ok(read.value)
+    }
+    info := sys.metadata(arg)
+    if info.ok && sys.file_kind(info) == .File {
+        read := sys.read_u8(arg)
+        if !read.ok { return .Err("cannot read " + arg + ": " + sys.error_message(read.error)) }
+        return .Ok(read.value)
+    }
+    mut buf: []u8 = []
+    for b in arg.bytes() { buf.push(u8(b)) }
+    .Ok(buf)
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    sub := sys.arg(1)
+    if sub != "encode" && sub != "decode" {
+        _ := sys.eprint("b64: unknown subcommand '" + sub + "'")
+        return 2
+    }
+    if count > 3 { _ := sys.eprint("b64: too many arguments"); return 2 }
+
+    mut data: []u8 = []
+    if count == 3 {
+        match load_arg(sys.arg(2)) {
+            .Ok(v) => { data = v },
+            .Err(e) => { _ := sys.eprint("b64: " + e); return 1 },
+        }
+    } else {
+        read := sys.read_u8("/dev/stdin")
+        if !read.ok { _ := sys.eprint("b64: cannot read stdin: " + sys.error_message(read.error)); return 1 }
+        data = read.value
+    }
+
+    if sub == "encode" {
+        print(b64.encode(&data))
+        return 0
+    }
+    as_text := sys.decode_u8(&data)
+    if !as_text.ok { _ := sys.eprint("b64: input is not valid UTF-8 text"); return 1 }
+    match b64.decode(text.trim(as_text.value)) {
+        .Ok(v) => {
+            out := bytes.decode(&v)
+            if !out.ok {
+                _ := sys.eprint("b64: decoded bytes are not valid UTF-8 (binary output unsupported in v0.1)")
+                return 1
+            }
+            print(out.value)
+            return 0
+        },
+        .Err(e) => { _ := sys.eprint("b64: " + e); return 1 },
+    }
+}

@@ -1,0 +1,48 @@
+import ..src.procent as procent
+
+@test fn percent_of_multiplies() {
+    assert(procent.percent_of(25.0, 200.0) == 50.0)
+    assert(procent.percent_of(0.5, 200.0) == 1.0)
+    assert(procent.percent_of(200.0, 0.0) == 0.0)
+}
+
+@test fn share_computes_percentage() {
+    match procent.share(3.0, 4.0) {
+        .Ok(v) => { assert(v == 75.0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match procent.share(1.0, 3.0) {
+        .Ok(v) => { assert(v - 33.333 < 0.001) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn share_rejects_zero_denominator() {
+    assert(procent.share(1.0, 0.0).is_err())
+}
+
+@test fn change_computes_increase_and_decrease() {
+    match procent.change(100.0, 150.0) {
+        .Ok(v) => { assert(v == 50.0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match procent.change(100.0, 50.0) {
+        .Ok(v) => { assert(v == -50.0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match procent.change(50.0, 75.0) {
+        .Ok(v) => { assert(v == 50.0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn change_rejects_zero_base() {
+    assert(procent.change(0.0, 5.0).is_err())
+}
+
+@test fn format_2_rounds_to_two_decimals() {
+    assert(procent.format_2(50.0) == "50")
+    assert(procent.format_2(33.333) == "33.33")
+    assert(procent.format_2(-12.5) == "-12.5")
+    assert(procent.format_2(2.05) == "2.05")
+}

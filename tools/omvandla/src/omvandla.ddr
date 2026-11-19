@@ -1,0 +1,89 @@
+// omvandla — unit converter.
+//
+// Temperature (c, f, k) converts through Celsius (affine, with
+// offsets); distance (km, mi, m, ft), weight (kg, lb, g) and data
+// (b, kb, mb, gb — decimal 1000-based) convert through linear ratios.
+
+import std.bytes as bytes
+
+fn lower_ascii(s: string) -> string {
+    mut out: []u8 = []
+    for i in 0..s.len {
+        b := s[i]
+        if b >= 65 && b <= 90 {
+            out.push(u8(b + 32))
+        } else {
+            out.push(u8(b))
+        }
+    }
+    bytes.decode(&out).value
+}
+
+// 1 temperature, 2 distance, 3 weight, 4 data, 0 unknown.
+fn category(unit: string) -> i32 {
+    if unit == "c" || unit == "f" || unit == "k" { return 1 }
+    if unit == "km" || unit == "mi" || unit == "m" || unit == "ft" { return 2 }
+    if unit == "kg" || unit == "lb" || unit == "g" { return 3 }
+    if unit == "b" || unit == "kb" || unit == "mb" || unit == "gb" { return 4 }
+    0
+}
+
+fn to_celsius(value: f64, unit: string) -> f64 {
+    if unit == "f" { return (value - 32.0) * 5.0 / 9.0 }
+    if unit == "k" { return value - 273.15 }
+    value
+}
+
+fn from_celsius(value: f64, unit: string) -> f64 {
+    if unit == "f" { return value * 9.0 / 5.0 + 32.0 }
+    if unit == "k" { return value + 273.15 }
+    value
+}
+
+// distance in meters, weight in grams, data in bytes.
+fn linear_factor(unit: string) -> f64 {
+    if unit == "km" { return 1000.0 }
+    if unit == "mi" { return 1609.344 }
+    if unit == "m" { return 1.0 }
+    if unit == "ft" { return 0.3048 }
+    if unit == "kg" { return 1000.0 }
+    if unit == "lb" { return 453.59237 }
+    if unit == "g" { return 1.0 }
+    if unit == "kb" { return 1000.0 }
+    if unit == "mb" { return 1000000.0 }
+    if unit == "gb" { return 1000000000.0 }
+    1.0
+}
+
+pub fn convert(value: f64, from_unit: string, to_unit: string) -> Result<f64, string> {
+    f := lower_ascii(from_unit.clone())
+    t := lower_ascii(to_unit.clone())
+    fc := category(f.clone())
+    if fc == 0 { return .Err("unknown unit: " + from_unit) }
+    if category(t.clone()) != fc {
+        return .Err("cannot convert " + from_unit + " to " + to_unit)
+    }
+    if fc == 1 {
+        return .Ok(from_celsius(to_celsius(value, f), t))
+    }
+    .Ok(value * linear_factor(f) / linear_factor(t))
+}
+
+pub fn near(a: f64, b: f64) -> bool {
+    a - b < 0.001 && b - a < 0.001
+}
+
+// Two-decimal display formatting via integer math on v*100.
+pub fn format_2(v: f64) -> string {
+    a := if v < 0.0 { -v } else { v }
+    if a > 1000000000000000.0 { return v.str() }
+    negative := v < 0.0
+    cents := i64(a * 100.0 + 0.5)
+    whole := cents / 100
+    frac := cents % 100
+    if !negative && whole == 0 && frac == 0 { return "0" }
+    sign := if negative { "-" } else { "" }
+    if frac == 0 { return sign + whole.str() }
+    if frac % 10 == 0 { return sign + whole.str() + "." + (frac / 10).str() }
+    sign + whole.str() + "." + f"{frac:02}"
+}

@@ -1,0 +1,61 @@
+import std.bytes as bytes
+import std.json as json
+import std.toml as toml
+
+fn pad(out: &mut []u8, depth: i32) {
+    for _ in 0..depth * 2 { out.push(b' ') }
+}
+
+fn write_pretty(doc: &json.Doc, node: i32, out: &mut []u8, depth: i32) {
+    kind := doc.kind(node)
+    if kind == .Object {
+        count := doc.count(node)
+        if count == 0 { bytes.append_utf8(&mut out, "{}"); return }
+        bytes.append_utf8(&mut out, "{\n")
+        for i in 0..count {
+            if i > 0 { bytes.append_utf8(&mut out, ",\n") }
+            pad(&mut out, depth + 1)
+            key := doc.key_at(node, i)
+            if key.ok { bytes.append_utf8(&mut out, json.quote(key.value)) }
+            bytes.append_utf8(&mut out, ": ")
+            write_pretty(doc, doc.val_at(node, i), &mut out, depth + 1)
+        }
+        bytes.append_utf8(&mut out, "\n")
+        pad(&mut out, depth)
+        bytes.append_utf8(&mut out, "}")
+        return
+    }
+    if kind == .Array {
+        count := doc.count(node)
+        if count == 0 { bytes.append_utf8(&mut out, "[]"); return }
+        bytes.append_utf8(&mut out, "[\n")
+        for i in 0..count {
+            if i > 0 { bytes.append_utf8(&mut out, ",\n") }
+            pad(&mut out, depth + 1)
+            write_pretty(doc, doc.at(node, i), &mut out, depth + 1)
+        }
+        bytes.append_utf8(&mut out, "\n")
+        pad(&mut out, depth)
+        bytes.append_utf8(&mut out, "]")
+        return
+    }
+    if kind == .String {
+        bytes.append_utf8(&mut out, json.quote(doc.as_str(node).value))
+        return
+    }
+    bytes.append_utf8(&mut out, doc.raw_span(node))
+}
+
+pub fn render_pretty(doc: &json.Doc, node: i32) -> string {
+    mut out: []u8 = []
+    write_pretty(doc, node, &mut out, 0)
+    bytes.decode(&out).value
+}
+
+pub fn convert(text: string) -> Result<string, string> {
+    parsed := toml.parse(text)
+    if !parsed.ok { return .Err(parsed.error) }
+    doc := json.Doc::parse_text(parsed.json)
+    if !doc.ok { return .Err(f"{doc.error} at byte {doc.offset}") }
+    .Ok(render_pretty(&doc, doc.root))
+}

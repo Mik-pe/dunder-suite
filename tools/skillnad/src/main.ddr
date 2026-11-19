@@ -1,0 +1,41 @@
+import std.text as text
+import sys
+
+import skillnad
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: skillnad A B      print -/+ changed lines and a summary")
+    _ := sys.eprint("  identical files print nothing and exit 0; max 2000 lines per file")
+    return 2
+}
+
+fn read_lines(path: string) -> Result<[]string, string> {
+    content := sys.read_text(path)
+    if !content.ok { return .Err("cannot read " + path.clone() + ": " + sys.error_message(content.error)) }
+    mut body := content.value
+    if text.ends_with(body, "\n") { body = body[0..body.len - 1] }
+    .Ok(text.split(body, "\n"))
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count != 3 { return usage() }
+    match read_lines(sys.arg(1)) {
+        .Err(e) => { _ := sys.eprint("skillnad: " + e); return 1 },
+        .Ok(a) => {
+            match read_lines(sys.arg(2)) {
+                .Err(e) => { _ := sys.eprint("skillnad: " + e); return 1 },
+                .Ok(b) => {
+                    match skillnad.diff_lines(&a, &b) {
+                        .Err(e) => { _ := sys.eprint("skillnad: " + e); return 1 },
+                        .Ok(lines) => {
+                            rendered := skillnad.render(&lines)
+                            if rendered.len > 0 { print(rendered) }
+                            return 0
+                        },
+                    }
+                },
+            }
+        },
+    }
+}

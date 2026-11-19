@@ -1,0 +1,49 @@
+import std.text as text
+import sys
+
+import kolla
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: kolla FILE...            print '<sha256-hex>  <path>' per file")
+    _ := sys.eprint("       kolla --check LIST      verify such lines, exit 1 on any FAIL")
+    return 2
+}
+
+fn run_check(list_path: string) -> i32 {
+    content := sys.read_text(list_path)
+    if !content.ok {
+        _ := sys.eprint("kolla: cannot read " + list_path + ": " + sys.error_message(content.error))
+        return 1
+    }
+    lines := text.split(content.value, "\n")
+    mut failed := false
+    for line in lines {
+        if line.len > 0 {
+            match kolla.verify_line(line.clone()) {
+                .Ok(status) => { print(status) },
+                .Err(status) => { print(status); failed = true },
+            }
+        }
+    }
+    if failed { return 1 }
+    return 0
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    if sys.arg(1) == "--check" {
+        if count != 3 { return usage() }
+        return run_check(sys.arg(2))
+    }
+    mut failed := false
+    for i in 1..count {
+        p := sys.arg(i)
+        match kolla.checksum(p.clone()) {
+            .Ok(hex) => { print(hex + "  " + p) },
+            .Err(e) => { _ := sys.eprint("kolla: " + e); failed = true },
+        }
+    }
+    if failed { return 1 }
+    return 0
+}

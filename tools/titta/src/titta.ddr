@@ -1,0 +1,35 @@
+import std.parse as parse
+import sys
+
+pub fn parse_ms(label: string, text: string) -> Result<i64, string> {
+    n := parse.integer(text)
+    if !n.ok { return .Err(label + " must be a whole number: " + text) }
+    if n.value < 10 { return .Err(label + " must be >= 10") }
+    if n.value > 3600000 { return .Err(label + " must be <= 3600000") }
+    .Ok(n.value)
+}
+
+pub fn wait_for_change(path: string, interval_ms: i64, timeout_ms: i64) -> Result<(i64, i64), string> {
+    if interval_ms < 10 { return .Err("interval must be >= 10 ms") }
+    first := sys.metadata(path)
+    if !first.ok {
+        return .Err("cannot read " + path + ": " + sys.error_message(first.error))
+    }
+    old := first.size
+    started := sys.now_ms()
+    while true {
+        if timeout_ms > 0 && sys.now_ms() - started >= timeout_ms {
+            return .Err("timeout after " + timeout_ms.str() + " ms waiting for " + path)
+        }
+        mut delay := interval_ms
+        if timeout_ms > 0 {
+            remaining := started + timeout_ms - sys.now_ms()
+            if remaining < delay { delay = remaining }
+        }
+        if delay > 0 { sys.sleep_ms(delay) }
+        info := sys.metadata(path)
+        if !info.ok { return .Err("file disappeared while watching: " + path) }
+        if info.size != old { return .Ok((old, info.size)) }
+    }
+    return .Err("unreachable")
+}

@@ -1,0 +1,28 @@
+import ..src.kolonn as kolonn
+
+@test fn split_tsv_preserves_empty_fields_and_ignores_last_empty_line() {
+    rows := kolonn.split_tsv("a\t\tc\n1\t2\t3\n")
+    assert(rows.len == 2)
+    assert(rows[0].len == 3)
+    assert(rows[0][0] == "a" && rows[0][1] == "" && rows[0][2] == "c")
+    assert(rows[1][2] == "3")
+    assert(kolonn.split_tsv("").len == 0)
+    assert(kolonn.split_tsv("only").len == 1)
+    assert(kolonn.split_tsv("only\n").len == 1)
+}
+
+@test fn align_pads_columns_to_the_widest_cell() {
+    mut rows: [][]string = [["name", "id"], ["ada", "7"], ["lovelace", "42"]]
+    assert(kolonn.align(&rows) == "name      id\nada       7 \nlovelace  42\n")
+}
+
+@test fn align_handles_ragged_rows() {
+    mut rows: [][]string = [["a", "bbbb"], ["cc"]]
+    assert(kolonn.align(&rows) == "a   bbbb\ncc      \n")
+}
+
+@test fn align_returns_empty_for_no_rows_or_columns() {
+    assert(kolonn.align(&[]) == "")
+    mut rows: [][]string = [[]]
+    assert(kolonn.align(&rows) == "")
+}

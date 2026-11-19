@@ -1,0 +1,65 @@
+import ..src.slump as slump
+
+@test fn random_hex_returns_lowercase_hex() {
+    match slump.random_hex(8) {
+        .Ok(h) => {
+            assert(h.len == 16)
+            mut all_hex := true
+            for i in 0..h.len {
+                b := h[i]
+                if !((b >= 48 && b <= 57) || (b >= 97 && b <= 102)) { all_hex = false }
+            }
+            assert(all_hex)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn random_hex_default_length_is_32_chars() {
+    match slump.random_hex(16) {
+        .Ok(h) => { assert(h.len == 32) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn random_hex_rejects_bad_sizes() {
+    assert(slump.random_hex(0).is_err())
+    assert(slump.random_hex(-1).is_err())
+    assert(slump.random_hex(2000).is_err())
+}
+
+@test fn random_range_returns_the_only_value_in_a_singleton_range() {
+    match slump.random_range(5, 5) {
+        .Ok(v) => { assert(v == 5) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn random_range_rejects_inverted_range() {
+    assert(slump.random_range(3, 1).is_err())
+}
+
+@test fn random_range_stays_inside_bounds() {
+    mut ok := true
+    mut i := 0
+    while i < 100 {
+        match slump.random_range(-3, 3) {
+            .Ok(v) => { if v < -3 || v > 3 { ok = false } },
+            .Err(e) => { assert(e.len >= 0); ok = false },
+        }
+        i += 1
+    }
+    assert(ok)
+}
+
+@test fn random_index_bounds() {
+    assert(slump.random_index(0).is_err())
+    match slump.random_index(1) {
+        .Ok(v) => { assert(v == 0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match slump.random_index(10) {
+        .Ok(v) => { assert(v >= 0 && v < 10) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

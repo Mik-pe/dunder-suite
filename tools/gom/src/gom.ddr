@@ -1,0 +1,104 @@
+// Single-file AES-256-GCM encryption with a passphrase, mirroring the key
+// derivation used by the valv vault (tools-agnostic form): the argon2id PHC
+// string is the HKDF input, the HKDF salt is "gom-v1" and the info is
+// "gom-key". File format (all ASCII, newline-terminated):
+//
+//   GOM1\n<argon2id PHC>\n<hex nonce 12>\n<hex ciphertext>\n<hex tag 16>\n
+//
+// Inputs are capped at 64 MiB (67108864 bytes).
+
+import std.bytes as bytes
+import std.crypto as crypto
+import std.text as text
+import sys
+
+fn app_salt() -> []u8 {
+    mut salt: []u8 = []
+    bytes.append_utf8(&mut salt, "gom-v1")
+    salt
+}
+
+fn derive_key(phc: string) -> Result<[]u8, string> {
+    mut material: []u8 = []
+    bytes.append_utf8(&mut material, phc)
+    mut info: []u8 = []
+    bytes.append_utf8(&mut info, "gom-key")
+    salt := app_salt()
+    derived := crypto.hkdf_sha256(&material, &salt, &info, 32)
+    if !derived.ok { return .Err("hkdf failed: " + derived.error) }
+    .Ok(derived.value)
+}
+
+pub fn encrypt_to(path_in: string, path_out: string, passphrase: string) -> Result<(), string> {
+    info := sys.metadata(path_in)
+    if !info.ok { return .Err("cannot read " + path_in.clone() + ": " + sys.error_message(info.error)) }
+    if sys.file_kind(info) != .File { return .Err("not a file: " + path_in.clone()) }
+    if info.size > 67108864 { return .Err("input too large (max 64 MiB): " + path_in.clone()) }
+    plain := sys.read_u8(path_in)
+    if !plain.ok { return .Err("cannot read " + path_in.clone() + ": " + sys.error_message(plain.error)) }
+
+    hashed := crypto.argon2id_hash(passphrase)
+    if !hashed.ok { return .Err("argon2id failed: " + hashed.error) }
+    phc := hashed.value
+
+    nonce_result := crypto.random(12)
+    if !nonce_result.ok { return .Err("random failed: " + nonce_result.error) }
+    nonce := nonce_result.value
+
+    mut aad: []u8 = []
+    bytes.append_utf8(&mut aad, "GOM1")
+
+    match derive_key(phc.clone()) {
+        .Err(e) => { return .Err(e) },
+        .Ok(key) => {
+            sealed := crypto.aes256_gcm_seal(&key, &nonce, &aad, &plain.value)
+            if !sealed.ok { return .Err("seal failed: " + sealed.error) }
+            mut out := "GOM1\n"
+            out = out + phc + "\n"
+            out = out + bytes.hex_u8(&nonce) + "\n"
+            out = out + bytes.hex_u8(&sealed.ciphertext) + "\n"
+            out = out + bytes.hex_u8(&sealed.tag) + "\n"
+            written := sys.write_text(path_out.clone(), out)
+            if !written.ok {
+                return .Err("cannot write " + path_out + ": " + sys.error_message(written.error))
+            }
+            .Ok
+        },
+    }
+}
+
+pub fn decrypt_to(path_in: string, path_out: string, passphrase: string) -> Result<(), string> {
+    content := sys.read_text(path_in)
+    if !content.ok { return .Err("cannot read " + path_in.clone() + ": " + sys.error_message(content.error)) }
+    parts := text.split(content.value, "\n")
+    if parts.len != 6 || parts[0] != "GOM1" || parts[5] != "" {
+        return .Err("not a gom file: " + path_in.clone())
+    }
+    phc := parts[1].clone()
+    if !crypto.argon2id_verify(passphrase, phc) {
+        return .Err("wrong passphrase")
+    }
+    nonce := crypto.decode_hex(parts[2])
+    ciphertext := crypto.decode_hex(parts[3])
+    tag := crypto.decode_hex(parts[4])
+    if !nonce.ok || nonce.value.len != 12 { return .Err("bad nonce in gom file") }
+    if !ciphertext.ok { return .Err("bad ciphertext in gom file") }
+    if !tag.ok || tag.value.len != 16 { return .Err("bad tag in gom file") }
+
+    match derive_key(phc.clone()) {
+        .Err(e) => { return .Err(e) },
+        .Ok(key) => {
+            mut aad: []u8 = []
+            bytes.append_utf8(&mut aad, "GOM1")
+            opened := crypto.aes256_gcm_open(&key, &nonce.value, &aad, &ciphertext.value, &tag.value)
+            if !opened.ok {
+                return .Err("decryption failed: wrong passphrase or tampered file")
+            }
+            written := sys.write_u8(path_out.clone(), &opened.value)
+            if !written.ok {
+                return .Err("cannot write " + path_out + ": " + sys.error_message(written.error))
+            }
+            .Ok
+        },
+    }
+}

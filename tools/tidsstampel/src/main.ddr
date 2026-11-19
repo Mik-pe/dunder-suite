@@ -1,0 +1,35 @@
+import std.parse as parse
+import sys
+
+import tidsstampel
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: tidsstampel NU                       current unix time (seconds)")
+    _ := sys.eprint("       tidsstampel T SECONDS               -> 'YYYY-MM-DD HH:MM:SS UTC'")
+    _ := sys.eprint("       tidsstampel D 'YYYY-MM-DD HH:MM:SS'  -> unix seconds")
+    _ := sys.eprint("  all math is i64 UTC; years 1..9999; no local time")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count == 2 && sys.arg(1) == "NU" {
+        print((sys.now_ms() / 1000).str())
+        return 0
+    }
+    if count == 3 && sys.arg(1) == "T" {
+        n := parse.integer(sys.arg(2))
+        if !n.ok { _ := sys.eprint("tidsstampel: not a number: " + sys.arg(2)); return 2 }
+        match tidsstampel.format_timestamp(n.value) {
+            .Ok(text) => { print(text); return 0 },
+            .Err(e) => { _ := sys.eprint("tidsstampel: " + e); return 1 },
+        }
+    }
+    if count == 3 && sys.arg(1) == "D" {
+        match tidsstampel.parse_timestamp(sys.arg(2)) {
+            .Ok(sec) => { print(sec.str()); return 0 },
+            .Err(e) => { _ := sys.eprint("tidsstampel: " + e); return 1 },
+        }
+    }
+    return usage()
+}

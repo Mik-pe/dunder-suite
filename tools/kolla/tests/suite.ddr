@@ -1,0 +1,88 @@
+capability filesystem
+
+import std.fs as fs
+import std.text as text
+import sys
+
+import ..src.kolla as kolla
+
+fn write_file(path: string, content: string) {
+    _ := sys.write_text(path, content)
+}
+
+@test fn checksum_matches_reference_vectors() {
+    dir := fs.temp_dir("kolla-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    a := root + "/a.txt"
+    write_file(a, "hello")
+    match kolla.checksum(a) {
+        .Ok(hex) => { assert(hex == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824") },
+        .Err(_) => { assert(false) },
+    }
+
+    empty := root + "/empty.txt"
+    write_file(empty, "")
+    match kolla.checksum(empty) {
+        .Ok(hex) => { assert(hex == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn checksum_errors_on_missing_and_directories() {
+    dir := fs.temp_dir("kolla-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    assert(kolla.checksum(root + "/nope.txt").is_err())
+    assert(kolla.checksum(root).is_err())
+}
+
+@test fn verify_line_accepts_good_lines_with_or_without_newline() {
+    dir := fs.temp_dir("kolla-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    a := root + "/a.txt"
+    write_file(a, "hello")
+    good := "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824  " + a
+    match kolla.verify_line(good) {
+        .Ok(status) => { assert(status == a + ": OK") },
+        .Err(_) => { assert(false) },
+    }
+    match kolla.verify_line(good.clone() + "\n") {
+        .Ok(status) => { assert(status == a + ": OK") },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn verify_line_flags_mismatches_missing_and_malformed() {
+    dir := fs.temp_dir("kolla-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    a := root + "/a.txt"
+    write_file(a, "hello")
+    zeros := "0000000000000000000000000000000000000000000000000000000000000000"
+    match kolla.verify_line(zeros + "  " + a) {
+        .Ok(_) => { assert(false) },
+        .Err(status) => { assert(text.starts_with(status, a + ": FAIL")); assert(text.find(status, "expected") >= 0) },
+    }
+    match kolla.verify_line(zeros + "  " + root + "/gone.txt") {
+        .Ok(_) => { assert(false) },
+        .Err(status) => { assert(text.starts_with(status, root + "/gone.txt: FAIL")) },
+    }
+    match kolla.verify_line("nonsense") {
+        .Ok(_) => { assert(false) },
+        .Err(status) => { assert(text.find(status, "malformed") >= 0) },
+    }
+    match kolla.verify_line("abc  " + a) {
+        .Ok(_) => { assert(false) },
+        .Err(status) => { assert(text.find(status, "malformed") >= 0) },
+    }
+}

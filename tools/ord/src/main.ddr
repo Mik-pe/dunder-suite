@@ -1,0 +1,47 @@
+import sys
+
+import ord
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: ord FILE...")
+    _ := sys.eprint("  counts lines, words (ASCII whitespace separated) and bytes per file")
+    _ := sys.eprint("  use '-' to read standard input; a total is printed for 2+ files")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut paths: []string = []
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--help" || a == "-h" { return usage() }
+        if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("ord: unknown flag " + a)
+            return 2
+        }
+        paths.push(a.clone())
+        i += 1
+    }
+    if paths.len == 0 { paths.push("-") }
+
+    mut total := ord.Counts { lines: 0, words: 0, bytes: 0 }
+    mut failed := false
+    for p in paths {
+        read_path := if p == "-" { "/dev/stdin" } else { p.clone() }
+        content := sys.read_text(read_path)
+        if !content.ok {
+            _ := sys.eprint("ord: cannot read " + p + ": " + sys.error_message(content.error))
+            failed = true
+        } else {
+            c := ord.count_text(content.value)
+            print(ord.render(&c, p.clone()))
+            ord.add(&mut total, &c)
+        }
+    }
+    if paths.len > 1 {
+        print(ord.render(&total, "total"))
+    }
+    if failed { return 1 }
+    return 0
+}

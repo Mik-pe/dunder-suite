@@ -1,0 +1,61 @@
+import std.parse as parse
+import sys
+
+import klipp
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: klipp [-d SEP] [-f N] [FILE]")
+    _ := sys.eprint("  print field N (1-based) of each line, split on SEP")
+    _ := sys.eprint("  -d SEP   field separator (default: tab)")
+    _ := sys.eprint("  -f N     field number, 1-based (default: 1)")
+    _ := sys.eprint("  lines with fewer than N fields print as empty lines (like cut)")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut sep := "\t"
+    mut number := 1
+    mut file_arg := "-"
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-d" {
+            if i + 1 >= count { _ := sys.eprint("klipp: missing value after -d"); return 2 }
+            i += 1
+            sep = sys.arg(i)
+            if sep.len == 0 { _ := sys.eprint("klipp: separator must not be empty"); return 2 }
+        } else if a == "-f" {
+            if i + 1 >= count { _ := sys.eprint("klipp: missing value after -f"); return 2 }
+            i += 1
+            r := parse.integer(sys.arg(i))
+            if !r.ok || r.value < 1 || r.value > 1000000 {
+                _ := sys.eprint("klipp: -f must be an integer >= 1")
+                return 2
+            }
+            number = i32(r.value)
+        } else if a == "--help" || a == "-h" {
+            return usage()
+        } else if a.len > 1 && a[0] == 45 {
+            _ := sys.eprint("klipp: unknown flag " + a)
+            return 2
+        } else {
+            file_arg = a.clone()
+        }
+        i += 1
+    }
+
+    read_path := if file_arg == "-" { "/dev/stdin" } else { file_arg.clone() }
+    content := sys.read_text(read_path)
+    if !content.ok {
+        _ := sys.eprint("klipp: cannot read " + file_arg + ": " + sys.error_message(content.error))
+        return 1
+    }
+    for line in klipp.to_lines(content.value) {
+        match klipp.field(line, sep, number) {
+            .Ok(v) => { print(v) },
+            .Err(_) => { print("") },
+        }
+    }
+    return 0
+}

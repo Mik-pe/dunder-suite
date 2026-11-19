@@ -1,0 +1,86 @@
+import ..src.omvandla as omvandla
+
+@test fn zero_celsius_is_thirty_two_fahrenheit() {
+    match omvandla.convert(0.0, "c", "f") {
+        .Ok(v) => { assert(omvandla.near(v, 32.0)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn boiling_and_freezing_round_trip() {
+    match omvandla.convert(100.0, "c", "f") {
+        .Ok(v) => { assert(omvandla.near(v, 212.0)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match omvandla.convert(32.0, "f", "c") {
+        .Ok(v) => { assert(omvandla.near(v, 0.0)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn kelvin_conversions_carry_the_offset() {
+    match omvandla.convert(0.0, "c", "k") {
+        .Ok(v) => { assert(omvandla.near(v, 273.15)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match omvandla.convert(273.15, "k", "c") {
+        .Ok(v) => { assert(omvandla.near(v, 0.0)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn one_mile_is_1_609344_kilometers() {
+    match omvandla.convert(1.0, "mi", "km") {
+        .Ok(v) => { assert(omvandla.near(v, 1.609344)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn linear_categories_convert_by_ratio() {
+    match omvandla.convert(1.0, "km", "m") {
+        .Ok(v) => { assert(omvandla.near(v, 1000.0)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match omvandla.convert(1.0, "kg", "g") {
+        .Ok(v) => { assert(omvandla.near(v, 1000.0)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match omvandla.convert(1.0, "gb", "mb") {
+        .Ok(v) => { assert(omvandla.near(v, 1000.0)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match omvandla.convert(1.0, "m", "ft") {
+        .Ok(v) => { assert(omvandla.near(v, 3.28084)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn mixed_categories_are_errors() {
+    assert(omvandla.convert(1.0, "kg", "km").is_err())
+    assert(omvandla.convert(1.0, "c", "km").is_err())
+    assert(omvandla.convert(1.0, "mi", "kb").is_err())
+}
+
+@test fn unknown_units_are_errors() {
+    assert(omvandla.convert(1.0, "xyz", "km").is_err())
+    assert(omvandla.convert(1.0, "km", "xyz").is_err())
+}
+
+@test fn units_are_case_insensitive() {
+    match omvandla.convert(0.0, "C", "F") {
+        .Ok(v) => { assert(omvandla.near(v, 32.0)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn same_unit_is_identity() {
+    match omvandla.convert(42.5, "km", "km") {
+        .Ok(v) => { assert(omvandla.near(v, 42.5)) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn near_helper_uses_tolerance() {
+    assert(omvandla.near(1.0, 1.0009))
+    assert(!omvandla.near(1.0, 1.01))
+}

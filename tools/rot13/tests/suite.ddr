@@ -1,0 +1,35 @@
+import ..src.rot13 as rot13
+
+@test fn rotate_13_letters_and_keeps_punctuation() {
+    assert(rot13.rotate("abc", 13) == "nop")
+    assert(rot13.rotate("nop", 13) == "abc")
+    assert(rot13.rotate("Hello, World!", 13) == "Uryyb, Jbeyq!")
+    assert(rot13.rotate("xyz", 13) == "klm")
+    assert(rot13.rotate("XYZ", 13) == "KLM")
+}
+
+@test fn rotate_passes_non_ascii_through_untouched() {
+    assert(rot13.rotate("ö", 13) == "ö")
+    assert(rot13.rotate("mön", 13) == "zöa")
+    assert(rot13.rotate("mön", 0) == "mön")
+    assert(rot13.rotate("åäö 123", 13) == "åäö 123")
+    assert(rot13.rotate("öaö", 13) == "önö")
+}
+
+@test fn rotate_identity_and_arbitrary_shifts() {
+    assert(rot13.rotate("The Quick Fox", 0) == "The Quick Fox")
+    assert(rot13.rotate("The Quick Fox", 26) == "The Quick Fox")
+    assert(rot13.rotate("The Quick Fox", 52) == "The Quick Fox")
+    assert(rot13.rotate("abc", 1) == "bcd")
+    assert(rot13.rotate("abc", 2) == "cde")
+    assert(rot13.rotate("abc", 25) == "zab")
+    assert(rot13.rotate("b", -1) == "a")
+    assert(rot13.rotate("a", -13) == "n")
+    assert(rot13.rotate("a", 39) == rot13.rotate("a", 13))
+}
+
+@test fn rotate_double_application_is_identity_for_ascii() {
+    once := rot13.rotate("Attack at Dawn! 07:30", 13)
+    twice := rot13.rotate(once, 13)
+    assert(twice == "Attack at Dawn! 07:30")
+}

@@ -1,0 +1,41 @@
+import std.bytes as bytes
+import std.text as text
+
+pub fn split_tsv(input: string) -> [][]string {
+    lines := text.split(input, "\n")
+    mut rows: [][]string = []
+    for i in 0..lines.len {
+        if i == lines.len - 1 && lines[i].len == 0 { continue }
+        rows.push(text.split(lines[i], "\t"))
+    }
+    rows
+}
+
+pub fn align(rows: &[][]string) -> string {
+    if rows.len == 0 { return "" }
+    mut columns := 0
+    for row in rows {
+        if row.len > columns { columns = row.len }
+    }
+    if columns == 0 { return "" }
+    mut widths: []i32 = []
+    for _ in 0..columns { widths.push(0) }
+    for row in rows {
+        for i in 0..row.len {
+            if row[i].len > widths[i] { widths[i] = row[i].len }
+        }
+    }
+    mut out: []u8 = []
+    for row in rows {
+        for i in 0..columns {
+            if i > 0 { bytes.append_utf8(&mut out, "  ") }
+            mut cell := ""
+            if i < row.len { cell = row[i].clone() }
+            bytes.append_utf8(&mut out, cell)
+            mut pad := widths[i] - cell.len
+            for _ in 0..pad { out.push(b' ') }
+        }
+        bytes.append_utf8(&mut out, "\n")
+    }
+    bytes.decode(&out).value
+}

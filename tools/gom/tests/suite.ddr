@@ -1,0 +1,153 @@
+capability filesystem
+
+import std.fs as fs
+import std.text as text
+import sys
+
+import ..src.gom as gom
+
+fn write_file(path: string, content: string) {
+    _ := sys.write_text(path, content)
+}
+
+fn read_file(path: string) -> string {
+    read := sys.read_text(path)
+    if read.ok { return read.value }
+    ""
+}
+
+@test fn roundtrip_restores_exact_content() {
+    dir := fs.temp_dir("gom-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    src := root + "/plain.txt"
+    sealed := root + "/plain.gom"
+    restored := root + "/restored.txt"
+    write_file(src, "dunder gom test 123\nsecond line\n")
+
+    match gom.encrypt_to(src, sealed, "rätt hemligt") {
+        .Ok => {},
+        .Err(e) => { assert(false) },
+    }
+    // format: header, PHC, hex nonce, hex ct, hex tag, trailing newline
+    content := read_file(sealed)
+    lines := text.split(content, "\n")
+    assert(lines.len == 6)
+    assert(lines[0] == "GOM1")
+    assert(text.starts_with(lines[1], "$argon2id$"))
+    assert(lines[2].len == 24)
+    assert(lines[4].len == 32)
+
+    match gom.decrypt_to(sealed, restored, "rätt hemligt") {
+        .Ok => { assert(read_file(restored) == "dunder gom test 123\nsecond line\n") },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn roundtrip_handles_empty_and_binary_ish_files() {
+    dir := fs.temp_dir("gom-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    src := root + "/empty.bin"
+    sealed := root + "/empty.gom"
+    restored := root + "/empty.out"
+    write_file(src, "")
+    match gom.encrypt_to(src, sealed, "pw") {
+        .Ok => {},
+        .Err(_) => { assert(false) },
+    }
+    match gom.decrypt_to(sealed, restored, "pw") {
+        .Ok => { assert(read_file(restored) == "") },
+        .Err(_) => { assert(false) },
+    }
+
+    raw := root + "/bytes.bin"
+    sealed2 := root + "/bytes.gom"
+    restored2 := root + "/bytes.out"
+    mut buf: []u8 = []
+    for v in 0..256 { buf.push(u8(v)) }
+    w := sys.write_u8(raw, &buf)
+    assert(w.ok)
+    match gom.encrypt_to(raw, sealed2, "pw2") {
+        .Ok => {},
+        .Err(_) => { assert(false) },
+    }
+    match gom.decrypt_to(sealed2, restored2, "pw2") {
+        .Ok => {
+            back := sys.read_u8(restored2)
+            assert(back.ok)
+            assert(back.value.len == 256)
+            assert(back.value[7] == 7 && back.value[255] == 255)
+        },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn wrong_passphrase_is_rejected() {
+    dir := fs.temp_dir("gom-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    src := root + "/s.txt"
+    sealed := root + "/s.gom"
+    write_file(src, "secret")
+    match gom.encrypt_to(src, sealed, "right") {
+        .Ok => {},
+        .Err(_) => { assert(false) },
+    }
+    match gom.decrypt_to(sealed, root + "/nope.txt", "wrong") {
+        .Ok => { assert(false) },
+        .Err(e) => { assert(text.find(e, "passphrase") >= 0) },
+    }
+}
+
+@test fn tampered_ciphertext_fails_authentication() {
+    dir := fs.temp_dir("gom-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    src := root + "/t.txt"
+    sealed := root + "/t.gom"
+    write_file(src, "tamper test payload")
+    match gom.encrypt_to(src, sealed, "pw") {
+        .Ok => {},
+        .Err(_) => { assert(false) },
+    }
+
+    content := read_file(sealed)
+    mut lines := text.split(content, "\n")
+    mut ct := lines[3].clone()
+    mut flipped := "0"
+    if ct[0..1] == "0" { flipped = "1" }
+    lines[3] = flipped + ct[1..ct.len]
+    mut rebuilt := ""
+    for line in lines {
+        if rebuilt.len > 0 { rebuilt = rebuilt + "\n" }
+        rebuilt = rebuilt + line.clone()
+    }
+    tampered := root + "/t2.gom"
+    write_file(tampered, rebuilt)
+
+    match gom.decrypt_to(tampered, root + "/t2.out", "pw") {
+        .Ok => { assert(false) },
+        .Err(e) => { assert(text.find(e, "tampered") >= 0 || text.find(e, "decryption") >= 0) },
+    }
+}
+
+@test fn rejects_missing_input_and_non_gom_files() {
+    dir := fs.temp_dir("gom-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    assert(gom.encrypt_to(root + "/gone.txt", root + "/x.gom", "pw").is_err())
+    fake := root + "/fake.gom"
+    write_file(fake, "not a gom file\n")
+    assert(gom.decrypt_to(fake, root + "/x.txt", "pw").is_err())
+}

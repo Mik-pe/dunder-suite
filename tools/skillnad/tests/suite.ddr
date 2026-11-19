@@ -1,0 +1,93 @@
+import ..src.skillnad as skillnad
+
+fn words(items: &[]string) -> []string {
+    mut out: []string = []
+    for item in items { out.push(item.clone()) }
+    out
+}
+
+@test fn identical_inputs_render_empty_and_are_all_context() {
+    a := words(["alpha", "beta", "gamma"])
+    match skillnad.diff_lines(&a, &a) {
+        .Ok(lines) => {
+            assert(lines.len == 3)
+            for line in lines { assert(line.kind == 0) }
+            assert(skillnad.render(&lines) == "")
+        },
+        .Err(_) => { assert(false) },
+    }
+    empty := words([])
+    match skillnad.diff_lines(&empty, &empty) {
+        .Ok(lines) => { assert(lines.len == 0); assert(skillnad.render(&lines) == "") },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn pure_insert_and_pure_delete() {
+    a := words(["a", "b", "c"])
+    with_insert := words(["a", "x", "b", "c"])
+    match skillnad.diff_lines(&a, &with_insert) {
+        .Ok(lines) => { assert(skillnad.render(&lines) == "+x\n0 removed, 1 added") },
+        .Err(_) => { assert(false) },
+    }
+    with_delete := words(["a", "c"])
+    match skillnad.diff_lines(&a, &with_delete) {
+        .Ok(lines) => { assert(skillnad.render(&lines) == "-b\n1 removed, 0 added") },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn replace_emits_minus_then_plus_in_edit_order() {
+    a := words(["foo"])
+    b := words(["bar"])
+    match skillnad.diff_lines(&a, &b) {
+        .Ok(lines) => {
+            assert(lines.len == 2)
+            assert(lines[0].kind == 1 && lines[0].text == "foo")
+            assert(lines[1].kind == 2 && lines[1].text == "bar")
+            assert(skillnad.render(&lines) == "-foo\n+bar\n1 removed, 1 added")
+        },
+        .Err(_) => { assert(false) },
+    }
+    x := words(["1", "2", "3"])
+    y := words(["1", "5", "3", "4"])
+    match skillnad.diff_lines(&x, &y) {
+        .Ok(lines) => { assert(skillnad.render(&lines) == "-2\n+5\n+4\n1 removed, 2 added") },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn shared_middle_lines_are_kept_as_context() {
+    a := words(["head", "keep1", "keep2", "tail"])
+    b := words(["HEAD", "keep1", "keep2", "TAIL"])
+    match skillnad.diff_lines(&a, &b) {
+        .Ok(lines) => {
+            assert(lines.len == 6)
+            assert(lines[0].kind == 1 && lines[0].text == "head")
+            assert(lines[1].kind == 2 && lines[1].text == "HEAD")
+            assert(lines[2].kind == 0 && lines[3].kind == 0)
+            assert(lines[4].kind == 1 && lines[4].text == "tail")
+            assert(lines[5].kind == 2 && lines[5].text == "TAIL")
+            assert(skillnad.render(&lines) == "-head\n+HEAD\n-tail\n+TAIL\n2 removed, 2 added")
+        },
+        .Err(_) => { assert(false) },
+    }
+}
+
+@test fn inputs_over_2000_lines_are_rejected() {
+    mut big: []string = []
+    mut i := 0
+    while i < 2001 {
+        big.push("line")
+        i += 1
+    }
+    small := words(["line"])
+    assert(skillnad.diff_lines(&big, &small).is_err())
+    assert(skillnad.diff_lines(&small, &big).is_err())
+    // exactly 2000 is fine
+    _ := big.pop()
+    match skillnad.diff_lines(&big, &big) {
+        .Ok(lines) => { assert(lines.len == 2000); assert(skillnad.render(&lines) == "") },
+        .Err(_) => { assert(false) },
+    }
+}

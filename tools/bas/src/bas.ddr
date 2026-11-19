@@ -1,0 +1,60 @@
+// bas — integer base converter (2, 8, 10, 16).
+//
+// Digits 0-9 and a-f (case-insensitive). Negative values keep a
+// leading '-'. No bit tricks: repeated multiplication / division on
+// the magnitude.
+
+import std.text as text
+
+fn digit_value(b: i32) -> i32 {
+    if b >= 48 && b <= 57 { return b - 48 }
+    if b >= 97 && b <= 102 { return b - 87 }
+    if b >= 65 && b <= 70 { return b - 55 }
+    -1
+}
+
+fn digit_char(d: i32) -> string {
+    table: []string = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+    table[d].clone()
+}
+
+pub fn valid_base(base: i64) -> bool {
+    base == 2 || base == 8 || base == 10 || base == 16
+}
+
+pub fn parse_in_base(input: string, base: i64) -> Result<i64, string> {
+    if !valid_base(base) { return .Err("base must be 2, 8, 10 or 16") }
+    trimmed := text.trim(input)
+    if trimmed.len == 0 { return .Err("no digits") }
+    mut negative := false
+    mut at := 0
+    if trimmed[0] == 45 {
+        negative = true
+        at = 1
+    }
+    if at >= trimmed.len { return .Err("no digits") }
+    mut value: i64 = 0
+    while at < trimmed.len {
+        d := digit_value(trimmed[at])
+        if d < 0 { return .Err(f"invalid digit at position {at}") }
+        if i64(d) >= base { return .Err(f"digit out of range for base {base}") }
+        value = value * base + i64(d)
+        at += 1
+    }
+    if negative { return .Ok(-value) }
+    .Ok(value)
+}
+
+pub fn format_base(value: i64, base: i64) -> string {
+    if !valid_base(base) { return "?" }
+    if value == 0 { return "0" }
+    negative := value < 0
+    mut mag := if negative { -value } else { value }
+    mut out := ""
+    while mag > 0 {
+        out = digit_char(i32(mag % base)) + out
+        mag = mag / base
+    }
+    if negative { return "-" + out }
+    out
+}

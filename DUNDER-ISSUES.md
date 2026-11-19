@@ -206,3 +206,64 @@ _New entries are appended while the remaining tools are written._
     integer formatting covered decimal rendering without float printing; and
     `route()` as a pure function over `(root, upload, method, target)` made
     the HTTP server's security decisions testable without sockets.
+
+## Round 4: fifty small tools built by five parallel agents
+
+The 50 `tools/` projects were written by subagents working from
+`AGENT-GUIDE.md`. Their findings (verified against the built tools):
+
+30. **Assigning a string match-payload binding still requires `.clone()`.**
+    Even `failure = e` inside a nested `.Err(e)` arm needs `e.clone()` when
+    the target outlives the arm — the payload binding is a borrow regardless
+    of how innocuous the use is. (Consistent with #23, but surprising in the
+    plain-assignment case.)
+
+31. **`i64` arithmetic overflow aborts the process at runtime.** `fibo`'s
+    F(93) guard had to avoid *computing* the value even on a final loop
+    iteration. Fine for a checked language, but CLIs doing user-supplied
+    arithmetic want a checked-multiply/add story or an overflow flag the way
+    `i32()` narrowing checks.
+
+32. **Two byte worlds: `[]i32` vs `[]u8`.** `text.bytes()` and
+    `sha256.digest`/`sha256.text` live in `[]i32`, while `std.bytes`,
+    `std.crypto`, `sys.read_u8/write_u8` and sockets live in `[]u8`. Every
+    hashing pipeline needs explicit conversion loops at the boundary
+    (hit independently by the `kolla` and `dublett` agents). A unifying
+    conversion helper (or `[]i32` overloads) would remove a whole class of
+    glue code.
+
+33. **Bare calls to instantiated generic helpers fail with a mangled-name
+    error.** `array.reverse(&mut v)` fails where
+    `array.reverse<string>(&mut v)` compiles; same for `array.contains` /
+    `array.index_of`. The diagnostics reference mangled internal names.
+    Either inference should work at call sites, or the message should
+    suggest the explicit type argument.
+
+34. **`map.Map` is opaque-ish in practice:** `.len` is a method (`m.len()`),
+    and `Map` cannot be constructed without `::new()`. Fine, but distinct
+    from plain structs — worth a line in `docs/standard.md`.
+
+35. **`json.Doc::parse_text` rejects literal control characters in strings**
+    (spec-correct). `packa`'s tests had to use `\n` escapes in fixtures.
+    Worth documenting since shell heredocs often carry raw newlines.
+
+36. **No module-level constants**: a fixed wordlist must be exposed as
+    `fn wordlist() -> []string`. Const arrays (or `const` bindings of
+    literals) would make table-driven tools cleaner.
+
+37. **`fs.list_dir` requires `capability filesystem`** even though plain
+    `sys` reads/writes do not — three separate agents hit this from
+    different angles (`granska`, `tom`, and the guide itself). The capability
+    boundary between `sys` file I/O and `std.fs` listing deserves a docs
+    table: which operation needs which capability.
+
+38. **The single-threaded loopback pattern scales.** The `eko` agent reused
+    the hylla listener/client trick for a full TCP echo round trip in a
+    `@test fn` with no harness — pattern proven twice now.
+
+39. **Agent-guide lesson:** a written, gotcha-first cheat sheet
+    (`AGENT-GUIDE.md`) let five independent agents ship 50 compiling,
+    test-passing tools (~693 tests) with zero syntax dead-ends that the
+    guide already covered. Every failure they hit was an undocumented
+    behavior — which then became a numbered entry here. Dogfooding via
+    agents is an efficient way to triage documentation gaps.

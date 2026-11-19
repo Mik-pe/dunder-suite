@@ -1,0 +1,87 @@
+import std.bytes as bytes
+import std.crypto as crypto
+
+// Passphrase generator: crypto.random-driven picks from a fixed 40-word
+// Swedish-ish ASCII list (kept as a function — Dunder 0.5.0 has no module
+// globals). Consecutive repeats are re-drawn.
+
+pub fn wordlist() -> []string {
+    mut words: []string = []
+    words.push("apa")
+    words.push("berg")
+    words.push("brus")
+    words.push("cykel")
+    words.push("damm")
+    words.push("ekorre")
+    words.push("eld")
+    words.push("fisk")
+    words.push("fjord")
+    words.push("flod")
+    words.push("gata")
+    words.push("gran")
+    words.push("grotta")
+    words.push("hav")
+    words.push("isberg")
+    words.push("jord")
+    words.push("katt")
+    words.push("klang")
+    words.push("kotte")
+    words.push("kvist")
+    words.push("lund")
+    words.push("lycka")
+    words.push("mossa")
+    words.push("nacke")
+    words.push("natt")
+    words.push("ost")
+    words.push("pirat")
+    words.push("ram")
+    words.push("riddare")
+    words.push("skog")
+    words.push("stig")
+    words.push("sten")
+    words.push("sol")
+    words.push("torn")
+    words.push("uggla")
+    words.push("varg")
+    words.push("vind")
+    words.push("vatten")
+    words.push("yxa")
+    words.push("zenit")
+    words
+}
+
+fn random_index(modulo: i32) -> Result<i32, string> {
+    rnd := crypto.random(4)
+    if !rnd.ok { return .Err("random failed: " + rnd.error) }
+    mut v: i64 = 0
+    for b in rnd.value { v = v * 256 + i64(b) }
+    .Ok(i32(v % i64(modulo)))
+}
+
+pub fn pick_words(count: i32, sep: string) -> Result<string, string> {
+    if count < 1 || count > 64 { return .Err("word count must be in 1..64") }
+    words := wordlist()
+    mut out := ""
+    mut prev := -1
+    mut made := 0
+    while made < count {
+        match random_index(words.len) {
+            .Ok(idx) => {
+                if idx != prev {
+                    if out.len > 0 { out = out + sep.clone() }
+                    out = out + words[idx].clone()
+                    prev = idx
+                    made += 1
+                }
+            },
+            .Err(e) => { return .Err(e) },
+        }
+    }
+    .Ok(out)
+}
+
+pub fn hex_token() -> Result<string, string> {
+    rnd := crypto.random(16)
+    if !rnd.ok { return .Err("random failed: " + rnd.error) }
+    .Ok(bytes.hex_u8(&rnd.value))
+}

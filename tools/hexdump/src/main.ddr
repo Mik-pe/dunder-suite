@@ -1,0 +1,61 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import hexdump
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: hexdump [--width W] FILE")
+    _ := sys.eprint("  W bytes per row, 1..64 (default 16); max file size 16 MiB")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    mut width: i64 = 16
+    mut path := ""
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--width" {
+            if i + 1 >= count {
+                _ := sys.eprint("hexdump: missing value after --width")
+                return 2
+            }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 || n.value > 64 {
+                _ := sys.eprint("hexdump: --width must be 1..64")
+                return 2
+            }
+            width = n.value
+        } else if text.starts_with(a, "--") {
+            _ := sys.eprint("hexdump: unknown flag " + a)
+            return 2
+        } else if path.len == 0 {
+            path = a.clone()
+        } else {
+            _ := sys.eprint("hexdump: expected exactly one FILE")
+            return 2
+        }
+        i += 1
+    }
+    if path.len == 0 { return usage() }
+    info := sys.metadata(path.clone())
+    if !info.ok {
+        _ := sys.eprint("hexdump: cannot stat " + path + ": " + sys.error_message(info.error))
+        return 1
+    }
+    if info.size > 16777216 {
+        _ := sys.eprint("hexdump: file is larger than 16 MiB")
+        return 1
+    }
+    data := sys.read_u8(path.clone())
+    if !data.ok {
+        _ := sys.eprint("hexdump: cannot read " + path + ": " + sys.error_message(data.error))
+        return 1
+    }
+    print(hexdump.dump(&data.value, i32(width)))
+    return 0
+}

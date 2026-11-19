@@ -1,0 +1,46 @@
+import sys
+
+import param
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: param parse QUERY       query string -> pretty JSON object")
+    _ := sys.eprint("       param build [FILE]      JSON object -> query string (FILE or stdin, '-' for stdin)")
+    _ := sys.eprint("  parse decodes %XX and '+'; repeated keys become a JSON array")
+    _ := sys.eprint("  build encodes via %XX (unreserved: A-Z a-z 0-9 - . _ ~); arrays repeat the key")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    command := sys.arg(1)
+
+    if command == "parse" {
+        if count != 3 { return usage() }
+        query := sys.arg(2)
+        match param.parse_query(query) {
+            .Ok(out) => { print(out) },
+            .Err(e) => { _ := sys.eprint("param: " + e); return 1 },
+        }
+        return 0
+    }
+
+    if command == "build" {
+        if count > 3 { return usage() }
+        mut read_path := "/dev/stdin"
+        if count == 3 && sys.arg(2) != "-" { read_path = sys.arg(2).clone() }
+        content := sys.read_text(read_path)
+        if !content.ok {
+            _ := sys.eprint("param: cannot read input: " + sys.error_message(content.error))
+            return 1
+        }
+        mut payload := content.value
+        match param.build_query(payload) {
+            .Ok(qs) => { print(qs) },
+            .Err(e) => { _ := sys.eprint("param: " + e); return 1 },
+        }
+        return 0
+    }
+
+    usage()
+}

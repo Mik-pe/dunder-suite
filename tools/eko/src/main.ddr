@@ -1,0 +1,113 @@
+capability network
+
+import std.net as net
+import std.parse as parse
+import std.text as text
+import sys
+
+import eko
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: eko serve [--port N]")
+    _ := sys.eprint("       eko send HOST PORT TEXT...")
+    _ := sys.eprint("serve: echo TCP server (default port 8999; 0 picks a free port;")
+    _ := sys.eprint("       the bound port is printed to stderr)")
+    _ := sys.eprint("send:  connect, write each TEXT + newline, print everything echoed back")
+    _ := sys.eprint("HOST must be an IPv4 dotted quad")
+    return 2
+}
+
+fn serve(port: i32) -> i32 {
+    listen := net.TcpListener::listen_addr(
+        net.SocketAddr { ip: .V4(0, 0, 0, 0), port: u16(port), scope_id: 0 }, 16)
+    if !listen.ok {
+        _ := sys.eprint("eko: cannot listen on port " + port.str() + ": " + sys.error_message(listen.error))
+        return 1
+    }
+    mut listener := listen.listener
+    bound := net.local_port(&listener)
+    _ := sys.eprint("eko: serving on 0.0.0.0:" + bound.str())
+    while true {
+        accepted := listener.accept()
+        if !accepted.ok {
+            if accepted.would_block { sys.sleep_ms(10) }
+            continue
+        }
+        mut stream := accepted.stream
+        _ := eko.echo_once(&stream)
+        _ := stream.close()
+    }
+    return 0
+}
+
+fn send(host: string, port: i32, texts: &[]string) -> i32 {
+    match eko.parse_ipv4(host) {
+        .Ok(ip) => {
+            connect := net.TcpStream::connect_addr(
+                net.SocketAddr { ip: .V4(ip.0, ip.1, ip.2, ip.3), port: u16(port), scope_id: 0 })
+            if !connect.ok {
+                _ := sys.eprint("eko: cannot connect to " + host + ":" + port.str())
+                return 1
+            }
+            mut client := connect.stream
+            for t in texts {
+                written := net.write_all(&client, &eko.bytes_of(t + "\n"))
+                if !written.ok {
+                    _ := sys.eprint("eko: cannot write to " + host)
+                    _ := client.close()
+                    return 1
+                }
+            }
+            reply := eko.drain_reply(&client)
+            _ := client.close()
+            print(text.trim(reply))
+            return 0
+        },
+        .Err(e) => { _ := sys.eprint("eko: " + e); return 2 },
+    }
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    cmd := sys.arg(1)
+    if cmd == "serve" {
+        mut port := 8999
+        mut i := 2
+        while i < count {
+            a := sys.arg(i)
+            if a == "--port" {
+                if i + 1 >= count { _ := sys.eprint("eko: missing value after --port"); return 2 }
+                i += 1
+                n := parse.integer(sys.arg(i))
+                if !n.ok || n.value < 0 || n.value > 65535 {
+                    _ := sys.eprint("eko: --port must be 0..65535")
+                    return 2
+                }
+                port = i32(n.value)
+            } else {
+                _ := sys.eprint("eko: unknown argument " + a)
+                return 2
+            }
+            i += 1
+        }
+        return serve(port)
+    }
+    if cmd == "send" {
+        if count < 5 { return usage() }
+        host := sys.arg(2)
+        n := parse.integer(sys.arg(3))
+        if !n.ok || n.value < 1 || n.value > 65535 {
+            _ := sys.eprint("eko: PORT must be 1..65535")
+            return 2
+        }
+        mut texts: []string = []
+        mut i := 4
+        while i < count {
+            texts.push(sys.arg(i))
+            i += 1
+        }
+        return send(host, i32(n.value), &texts)
+    }
+    usage()
+}

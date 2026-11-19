@@ -1,0 +1,65 @@
+import std.text as text
+import sys
+
+import tom
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: tom [--marker EXT] [--run] DIR")
+    _ := sys.eprint("  --marker EXT   filename suffix that marks stale files (default .tmp)")
+    _ := sys.eprint("  --run          actually delete; without it, only list")
+    _ := sys.eprint("  DIR            directory to clean (non-recursive)")
+    _ := sys.eprint("modification times are not available to Dunder, so staleness is")
+    _ := sys.eprint("marked purely by filename suffix")
+    return 2
+}
+
+fn main() -> i32 {
+    mut marker := ".tmp"
+    mut run := false
+    mut dir := ""
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "--marker" {
+            if i + 1 >= count { _ := sys.eprint("tom: missing value after --marker"); return 2 }
+            i += 1
+            marker = sys.arg(i)
+            if !text.starts_with(marker, ".") || marker.len < 2 {
+                _ := sys.eprint("tom: --marker must look like .ext")
+                return 2
+            }
+        } else if a == "--run" {
+            run = true
+        } else if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("tom: unknown flag " + a)
+            return 2
+        } else if dir.len == 0 {
+            dir = a.clone()
+        } else {
+            _ := sys.eprint("tom: unexpected argument " + a)
+            return 2
+        }
+        i += 1
+    }
+    if dir.len == 0 { return usage() }
+
+    found := tom.candidates(dir, marker)
+    if run {
+        match tom.remove_all_files(&found) {
+            .Ok(removed) => {
+                for path in found {
+                    print("removed " + path)
+                }
+                print(f"{removed} file(s) removed")
+            },
+            .Err(e) => { _ := sys.eprint("tom: " + e); return 1 },
+        }
+    } else {
+        for path in found {
+            print("would remove " + path)
+        }
+        print(f"{found.len} file(s) match {marker}")
+    }
+    return 0
+}

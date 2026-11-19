@@ -1,0 +1,55 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import slumpord
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: slumpord [-w N] [--hex] [--sep S]")
+    _ := sys.eprint("  -w N     number of words (default 4, max 64)")
+    _ := sys.eprint("  --hex    print 32 random hex characters instead of words")
+    _ := sys.eprint("  --sep S  separator between words (default '-')")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    mut words := 4
+    mut as_hex := false
+    mut sep := "-"
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-w" {
+            if i + 1 >= count { _ := sys.eprint("slumpord: missing value after -w"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 || n.value > 64 {
+                _ := sys.eprint("slumpord: -w must be in 1..64")
+                return 2
+            }
+            words = i32(n.value)
+        } else if a == "--hex" {
+            as_hex = true
+        } else if a == "--sep" {
+            if i + 1 >= count { _ := sys.eprint("slumpord: missing value after --sep"); return 2 }
+            i += 1
+            sep = sys.arg(i)
+        } else {
+            _ := sys.eprint("slumpord: unknown flag " + a)
+            return 2
+        }
+        i += 1
+    }
+
+    if as_hex {
+        match slumpord.hex_token() {
+            .Ok(token) => { print(token); return 0 },
+            .Err(e) => { _ := sys.eprint("slumpord: " + e); return 1 },
+        }
+    }
+    match slumpord.pick_words(words, sep) {
+        .Ok(passphrase) => { print(passphrase); return 0 },
+        .Err(e) => { _ := sys.eprint("slumpord: " + e); return 1 },
+    }
+}

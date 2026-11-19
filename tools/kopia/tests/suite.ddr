@@ -1,0 +1,80 @@
+capability filesystem
+
+import std.fs as fs
+import std.sys as sys
+import std.text as text
+
+import ..src.kopia as kopia
+
+fn make_dir() -> Result<string, string> {
+    dir := fs.temp_dir("kopia-suite-")
+    if !dir.ok { return .Err("temp_dir failed") }
+    _ := sys.write_text(dir.value + "/doc.txt", "version one\n")
+    .Ok(dir.value)
+}
+
+@test fn backup_copies_content_under_timestamped_name() {
+    match make_dir() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            match kopia.backup(root + "/doc.txt") {
+                .Ok(dest) => {
+                    assert(text.starts_with(dest, root + "/doc.txt.bak."))
+                    body := sys.read_text(dest)
+                    assert(body.ok && body.value == "version one\n")
+                },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn backup_rejects_missing_files() {
+    match make_dir() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            assert(kopia.backup(root + "/nope.txt").is_err())
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn prune_removes_only_oldest_backups_beyond_keep() {
+    match make_dir() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            _ := sys.write_text(root + "/doc.txt.bak.1000", "a")
+            _ := sys.write_text(root + "/doc.txt.bak.2000", "b")
+            _ := sys.write_text(root + "/doc.txt.bak.3000", "c")
+            _ := sys.write_text(root + "/doc.txt.bak.xyz", "junk")
+            _ := sys.write_text(root + "/unrelated.bak.1", "keep me")
+            match kopia.prune(root, "doc.txt", 2) {
+                .Ok(removed) => { assert(removed == 1) },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+            assert(!sys.metadata(root + "/doc.txt.bak.1000").ok)
+            assert(sys.metadata(root + "/doc.txt.bak.2000").ok)
+            assert(sys.metadata(root + "/doc.txt.bak.3000").ok)
+            assert(sys.metadata(root + "/doc.txt.bak.xyz").ok)
+            assert(sys.metadata(root + "/unrelated.bak.1").ok)
+            assert(sys.metadata(root + "/doc.txt").ok)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn prune_keeps_everything_under_the_limit_and_validates_keep() {
+    match make_dir() {
+        .Ok(root) => {
+            defer { _ := fs.remove_all(root) }
+            _ := sys.write_text(root + "/doc.txt.bak.1000", "a")
+            match kopia.prune(root, "doc.txt", 5) {
+                .Ok(removed) => { assert(removed == 0) },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+            assert(kopia.prune(root, "doc.txt", 0).is_err())
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

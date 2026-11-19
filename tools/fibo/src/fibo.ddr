@@ -1,0 +1,38 @@
+// fibo — Fibonacci numbers on i64 (F(1) = 1, F(2) = 1, ...).
+//
+// F(92) = 7540113804746346429 is the largest Fibonacci number that
+// fits in i64; F(93) overflows, so nth() rejects n > 92.
+
+pub fn nth(n: i32) -> Result<i64, string> {
+    if n < 1 { return .Err("N must be >= 1") }
+    if n > 92 { return .Err("N must be <= 92 (F(93) overflows i64)") }
+    mut a: i64 = 0
+    mut b: i64 = 1
+    mut i := 1
+    while i < n {
+        next := a + b
+        a = b
+        b = next
+        i += 1
+    }
+    .Ok(b)
+}
+
+pub fn fibonacci(count: i32) -> []i64 {
+    mut out: []i64 = []
+    if count < 1 { return out }
+    mut a: i64 = 0
+    mut b: i64 = 1
+    mut i := 0
+    while i < count && i < 92 {
+        value := b
+        out.push(value)
+        if i + 1 < count && i + 1 < 92 {
+            next := a + b
+            a = b
+            b = next
+        }
+        i += 1
+    }
+    out
+}

@@ -1,0 +1,25 @@
+import std.text as text
+import sys
+
+fn join_dir(dir: string, name: string) -> string {
+    if text.ends_with(dir, "/") { return dir + name }
+    dir + "/" + name
+}
+
+pub fn search_path(path_value: string, name: string) -> []string {
+    mut found: []string = []
+    elements := text.split(path_value, ":")
+    for dir in elements {
+        if dir.len == 0 { continue }
+        candidate := join_dir(dir, name)
+        info := sys.metadata(candidate)
+        if info.ok && sys.file_kind(info) == .File {
+            mut dup := false
+            for seen in found {
+                if seen == candidate { dup = true }
+            }
+            if !dup { found.push(candidate.clone()) }
+        }
+    }
+    found
+}

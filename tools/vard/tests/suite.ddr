@@ -1,0 +1,35 @@
+capability process
+
+import ..src.vard as vard
+
+fn pair(key: string, value: string) -> vard.Pair {
+    vard.Pair { key: key.clone(), value: value.clone() }
+}
+
+@test fn render_aligns_keys_to_the_longest_one() {
+    mut pairs: []vard.Pair = []
+    pairs.push(pair("os", "macos"))
+    pairs.push(pair("arch", "arm64"))
+    pairs.push(pair("cpus", "10"))
+    assert(vard.render(&pairs) == "os    macos\narch  arm64\ncpus  10")
+}
+
+@test fn render_handles_single_pairs_and_empty_lists() {
+    mut one: []vard.Pair = []
+    one.push(pair("pid", "4242"))
+    assert(vard.render(&one) == "pid  4242")
+    mut none: []vard.Pair = []
+    assert(vard.render(&none) == "")
+}
+
+@test fn collect_smoke_runs_and_fills_expected_keys() {
+    pairs := vard.collect()
+    assert(pairs.len == 5)
+    mut keys := ""
+    for p in pairs {
+        if keys.len > 0 { keys = keys + "," }
+        keys = keys + p.key.clone()
+        assert(p.value.len > 0)
+    }
+    assert(keys == "os,arch,target,cpus,pid")
+}

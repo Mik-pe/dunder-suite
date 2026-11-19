@@ -1,0 +1,34 @@
+capability process
+
+import std.process as process
+import sys
+
+pub struct Pair {
+    key: string,
+    value: string,
+}
+
+pub fn collect() -> []Pair {
+    mut out: []Pair = []
+    out.push(Pair { key: "os", value: process.host_os() })
+    out.push(Pair { key: "arch", value: process.host_arch() })
+    out.push(Pair { key: "target", value: process.host_target() })
+    out.push(Pair { key: "cpus", value: process.host_cpus().str() })
+    out.push(Pair { key: "pid", value: sys.pid().str() })
+    out
+}
+
+pub fn render(pairs: &[]Pair) -> string {
+    mut width := 0
+    for p in pairs {
+        if p.key.len > width { width = p.key.len }
+    }
+    mut out := ""
+    for p in pairs {
+        mut label := p.key.clone()
+        while label.len < width { label = label + " " }
+        if out.len > 0 { out = out + "\n" }
+        out = out + label + "  " + p.value
+    }
+    out
+}

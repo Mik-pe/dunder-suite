@@ -1,0 +1,51 @@
+// Byte-wise slugification: only ASCII a-z, A-Z, 0-9 survive (letters are
+// lowercased); every other rune becomes a single '-', runs collapse,
+// leading/trailing '-' are trimmed. Non-ASCII letters are dropped.
+import std.text as text
+
+pub fn slugify(s: string) -> string {
+    lower := "abcdefghijklmnopqrstuvwxyz0123456789"
+    mut out := ""
+    mut pending := false
+    for i in 0..s.len {
+        b := s[i]
+        if b >= 97 && b <= 122 {
+            if pending && out.len > 0 { out = out + "-" }
+            out = out + lower[b - 97..b - 96]
+            pending = false
+        } else if b >= 65 && b <= 90 {
+            if pending && out.len > 0 { out = out + "-" }
+            out = out + lower[b - 65..b - 64]
+            pending = false
+        } else if b >= 48 && b <= 57 {
+            if pending && out.len > 0 { out = out + "-" }
+            out = out + lower[b - 48 + 26..b - 48 + 27]
+            pending = false
+        } else {
+            pending = true
+        }
+    }
+    out
+}
+
+pub fn to_lines(content: string) -> []string {
+    mut lines: []string = []
+    parts := text.split(content, "\n")
+    last := parts.len - 1
+    mut i := 0
+    for part in parts {
+        if !(i == last && part.len == 0) {
+            lines.push(part.clone())
+        }
+        i += 1
+    }
+    lines
+}
+
+pub fn slugify_lines(content: string) -> []string {
+    mut out: []string = []
+    for line in to_lines(content) {
+        out.push(slugify(line))
+    }
+    out
+}

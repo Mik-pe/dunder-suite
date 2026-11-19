@@ -1,0 +1,35 @@
+import ..src.unik as unik
+
+@test fn collapse_merges_consecutive_duplicates_only() {
+    lines: []string = ["a", "a", "b", "a", "a", "a"]
+    pairs := unik.collapse(&lines)
+    assert(pairs.len == 3)
+    assert(pairs[0].text == "a" && pairs[0].count == 2)
+    assert(pairs[1].text == "b" && pairs[1].count == 1)
+    assert(pairs[2].text == "a" && pairs[2].count == 3)
+}
+
+@test fn collapse_handles_empty_and_blank_lines() {
+    empty: []string = []
+    assert(unik.collapse(&empty).len == 0)
+
+    blanks: []string = ["", "", "x", ""]
+    pairs := unik.collapse(&blanks)
+    assert(pairs.len == 3)
+    assert(pairs[0].text == "" && pairs[0].count == 2)
+    assert(pairs[2].text == "" && pairs[2].count == 1)
+}
+
+@test fn render_plain_and_with_counts() {
+    lines: []string = ["a", "a", "b"]
+    pairs := unik.collapse(&lines)
+    assert(unik.render(&pairs, false) == "a\nb")
+    assert(unik.render(&pairs, true) == "      2 a\n      1 b")
+}
+
+@test fn to_lines_feeds_collapse() {
+    lines := unik.to_lines("x\nx\ny\n")
+    pairs := unik.collapse(&lines)
+    assert(pairs.len == 2)
+    assert(pairs[0].count == 2 && pairs[1].count == 1)
+}

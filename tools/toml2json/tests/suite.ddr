@@ -1,0 +1,38 @@
+import ..src.toml2json as toml2json
+
+@test fn convert_renders_pretty_two_space_json() {
+    match toml2json.convert("name = \"dunder\"\n[deps]\nhttp = \"pkg\"\n") {
+        .Ok(out) => { assert(out == "{\n  \"name\": \"dunder\",\n  \"deps\": {\n    \"http\": \"pkg\"\n  }\n}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn convert_quotes_string_values_via_json_quote() {
+    match toml2json.convert("title = \"he said \\\"hi\\\"\"\ngreet = \"räksmörgås\"") {
+        .Ok(out) => {
+            assert(out == "{\n  \"title\": \"he said \\\"hi\\\"\",\n  \"greet\": \"räksmörgås\"\n}")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn convert_renders_arrays_and_scalars() {
+    match toml2json.convert("nums = [1, 2]\nflag = true\nnothing = \"\"\n") {
+        .Ok(out) => {
+            assert(out == "{\n  \"nums\": [\n    1,\n    2\n  ],\n  \"flag\": true,\n  \"nothing\": \"\"\n}")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn convert_empty_input_is_an_empty_object() {
+    match toml2json.convert("") {
+        .Ok(out) => { assert(out == "{}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn convert_reports_toml_errors() {
+    assert(toml2json.convert("[unclosed").is_err())
+    assert(toml2json.convert("not toml [").is_err())
+}

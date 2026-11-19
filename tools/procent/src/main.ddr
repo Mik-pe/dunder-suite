@@ -1,0 +1,63 @@
+import std.parse as parse
+import sys
+
+import procent
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: procent av X Y          X% of Y")
+    _ := sys.eprint("       procent andel A B      A is what percent of B")
+    _ := sys.eprint("       procent forandring A B percent change from A to B")
+    return 2
+}
+
+fn parse_arg(s: string) -> Result<f64, string> {
+    match parse.value<f64>(s) {
+        .Ok(v) => {
+            if !v.is_finite() { return .Err("not a finite number: " + s) }
+            .Ok(v)
+        },
+        .Err(e) => { .Err(e.clone()) },
+    }
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count != 4 { return usage() }
+    command := sys.arg(1)
+    if command != "av" && command != "andel" && command != "forandring" {
+        return usage()
+    }
+    mut a := 0.0
+    mut failure := ""
+    match parse_arg(sys.arg(2)) {
+        .Ok(v) => { a = v },
+        .Err(e) => { failure = e.clone() },
+    }
+    if failure.len > 0 {
+        _ := sys.eprint("procent: " + failure)
+        return 1
+    }
+    mut b := 0.0
+    match parse_arg(sys.arg(3)) {
+        .Ok(v) => { b = v },
+        .Err(e) => { failure = e.clone() },
+    }
+    if failure.len > 0 {
+        _ := sys.eprint("procent: " + failure)
+        return 1
+    }
+    if command == "av" {
+        print(procent.format_2(procent.percent_of(a, b)))
+        return 0
+    }
+    if command == "andel" {
+        match procent.share(a, b) {
+            .Ok(v) => { print(procent.format_2(v)); return 0 },
+            .Err(e) => { _ := sys.eprint("procent: " + e.clone()); return 1 },
+        }
+    }
+    match procent.change(a, b) {
+        .Ok(v) => { print(procent.format_2(v)); return 0 },
+        .Err(e) => { _ := sys.eprint("procent: " + e.clone()); return 1 },
+    }
+}

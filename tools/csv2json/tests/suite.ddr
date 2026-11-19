@@ -1,0 +1,63 @@
+import ..src.csv2json as csv2json
+
+@test fn parse_csv_reads_simple_and_empty_cells() {
+    match csv2json.parse_csv("a,b,c\n1,,3\n") {
+        .Ok(rows) => {
+            assert(rows.len == 2)
+            assert(rows[0].len == 3)
+            assert(rows[0][0] == "a" && rows[0][2] == "c")
+            assert(rows[1][0] == "1" && rows[1][1] == "" && rows[1][2] == "3")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_csv_handles_quotes_commas_and_embedded_newlines() {
+    match csv2json.parse_csv("name,note\n\"ada\",\"x,y\"\n1,\"multi\nline\",ok") {
+        .Ok(rows) => {
+            assert(rows.len == 3)
+            assert(rows[1].len == 2)
+            assert(rows[1][0] == "ada" && rows[1][1] == "x,y")
+            assert(rows[2].len == 3)
+            assert(rows[2][0] == "1")
+            assert(rows[2][1] == "multi\nline")
+            assert(rows[2][2] == "ok")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_csv_accepts_quote_after_mid_row_comma() {
+    match csv2json.parse_csv("a,b\n1,\"x,y\"\n2,\"say \"\"hi\"\"\"") {
+        .Ok(rows) => {
+            assert(rows.len == 3)
+            assert(rows[1][0] == "1" && rows[1][1] == "x,y")
+            assert(rows[2][0] == "2" && rows[2][1] == "say \"hi\"")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_csv_rejects_broken_quotes_and_trailing_comma_cell() {
+    assert(csv2json.parse_csv("\"unterminated").is_err())
+    assert(csv2json.parse_csv("\"a\"x,b").is_err())
+    match csv2json.parse_csv("a,") {
+        .Ok(rows) => {
+            assert(rows.len == 1)
+            assert(rows[0].len == 2 && rows[0][0] == "a" && rows[0][1] == "")
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn to_json_builds_array_of_objects() {
+    mut header: []string = ["a", "b"]
+    mut rows: [][]string = [["1", "x,y"], ["2", "z"]]
+    assert(csv2json.to_json(&rows, &header) == "[{\"a\":\"1\",\"b\":\"x,y\"},{\"a\":\"2\",\"b\":\"z\"}]")
+}
+
+@test fn to_json_skips_cells_beyond_header() {
+    mut header: []string = ["a"]
+    mut rows: [][]string = [["1", "extra"]]
+    assert(csv2json.to_json(&rows, &header) == "[{\"a\":\"1\"}]")
+}

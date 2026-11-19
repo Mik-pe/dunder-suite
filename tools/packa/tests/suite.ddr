@@ -1,0 +1,39 @@
+import ..src.packa as packa
+
+@test fn minify_strips_all_whitespace() {
+    match packa.minify("{ \"a\" : 1, \"b\" : [ 1, 2 ], \"c\" : { \"d\" : null }, \"e\" : {}, \"f\" : [] }") {
+        .Ok(out) => { assert(out == "{\"a\":1,\"b\":[1,2],\"c\":{\"d\":null},\"e\":{},\"f\":[]}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn minify_requotes_string_values() {
+    match packa.minify("{\"s\": \"he said \\\"hi\\\"\", \"t\": \"x\\ny\", \"u\": \"räksmörgås\"}") {
+        .Ok(out) => { assert(out == "{\"s\":\"he said \\\"hi\\\"\",\"t\":\"x\\ny\",\"u\":\"räksmörgås\"}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn minify_preserves_number_text_and_bools() {
+    match packa.minify("[1.50, -3, 2e3, true, false, null]") {
+        .Ok(out) => { assert(out == "[1.50,-3,2e3,true,false,null]") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn minify_rejects_invalid_input() {
+    assert(packa.minify("{\"a\":}").is_err())
+    assert(packa.minify("").is_err())
+    assert(packa.minify("[1] trailing").is_err())
+}
+
+@test fn minify_handles_deep_nesting_and_scalars() {
+    match packa.minify("  \"just a string\"  ") {
+        .Ok(out) => { assert(out == "\"just a string\"") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match packa.minify("{\"deep\": {\"list\": [{\"x\": [true]}]}}") {
+        .Ok(out) => { assert(out == "{\"deep\":{\"list\":[{\"x\":[true]}]}}") },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

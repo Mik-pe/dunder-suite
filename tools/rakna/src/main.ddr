@@ -1,0 +1,18 @@
+import sys
+
+import rakna
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: rakna EXPRESSION")
+    _ := sys.eprint("  integer arithmetic with + - * / % and parentheses")
+    _ := sys.eprint("  e.g. rakna \"2 + 3 * (4 - 1)\"")
+    return 2
+}
+
+fn main() -> i32 {
+    if sys.arg_count() != 2 { return usage() }
+    match rakna.eval(sys.arg(1)) {
+        .Ok(v) => { print(v.str()); return 0 },
+        .Err(e) => { _ := sys.eprint("rakna: " + e); return 1 },
+    }
+}

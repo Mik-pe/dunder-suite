@@ -1,0 +1,70 @@
+import std.parse as parse
+import std.text as text
+import sys
+
+import slump
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: slump hex [--bytes N]    random hex string (default 16 bytes)")
+    _ := sys.eprint("       slump int MIN MAX        uniform integer, min..=max inclusive")
+    _ := sys.eprint("       slump pick A B C ...      pick one of the arguments")
+    return 2
+}
+
+fn main() -> i32 {
+    count := sys.arg_count()
+    if count < 2 { return usage() }
+    command := sys.arg(1)
+    if command == "hex" {
+        mut byte_count: i64 = 16
+        mut i := 2
+        while i < count {
+            a := sys.arg(i)
+            if a == "--bytes" {
+                if i + 1 >= count {
+                    _ := sys.eprint("slump: missing value after --bytes")
+                    return 2
+                }
+                i += 1
+                n := parse.integer(sys.arg(i))
+                if !n.ok || n.value < 1 || n.value > 1024 {
+                    _ := sys.eprint("slump: --bytes must be 1..1024")
+                    return 2
+                }
+                byte_count = n.value
+            } else if text.starts_with(a, "--") {
+                _ := sys.eprint("slump: unknown flag " + a)
+                return 2
+            } else {
+                _ := sys.eprint("slump: unexpected argument " + a)
+                return 2
+            }
+            i += 1
+        }
+        match slump.random_hex(i32(byte_count)) {
+            .Ok(h) => { print(h); return 0 },
+            .Err(e) => { _ := sys.eprint("slump: " + e.clone()); return 1 },
+        }
+    }
+    if command == "int" {
+        if count != 4 { return usage() }
+        lo := parse.integer(sys.arg(2))
+        hi := parse.integer(sys.arg(3))
+        if !lo.ok || !hi.ok {
+            _ := sys.eprint("slump: MIN and MAX must be integers")
+            return 1
+        }
+        match slump.random_range(lo.value, hi.value) {
+            .Ok(v) => { print(v.str()); return 0 },
+            .Err(e) => { _ := sys.eprint("slump: " + e.clone()); return 1 },
+        }
+    }
+    if command == "pick" {
+        if count < 3 { return usage() }
+        match slump.random_index(count - 2) {
+            .Ok(idx) => { print(sys.arg(idx + 2)); return 0 },
+            .Err(e) => { _ := sys.eprint("slump: " + e.clone()); return 1 },
+        }
+    }
+    usage()
+}

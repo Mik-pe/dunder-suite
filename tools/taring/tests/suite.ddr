@@ -1,0 +1,66 @@
+import ..src.taring as taring
+
+@test fn parse_dice_full_form() {
+    match taring.parse_dice("2d6+3") {
+        .Ok(d) => { assert(d.count == 2); assert(d.sides == 6); assert(d.modifier == 3) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match taring.parse_dice("3d8-2") {
+        .Ok(d) => { assert(d.count == 3); assert(d.sides == 8); assert(d.modifier == -2) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_dice_bare_d_and_uppercase_d() {
+    match taring.parse_dice("d20") {
+        .Ok(d) => { assert(d.count == 1); assert(d.sides == 20); assert(d.modifier == 0) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match taring.parse_dice("4D4") {
+        .Ok(d) => { assert(d.count == 4); assert(d.sides == 4) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn parse_dice_rejects_bad_input() {
+    assert(taring.parse_dice("0d6").is_err())
+    assert(taring.parse_dice("1001d6").is_err())
+    assert(taring.parse_dice("2d1").is_err())
+    assert(taring.parse_dice("2d").is_err())
+    assert(taring.parse_dice("2d6+").is_err())
+    assert(taring.parse_dice("banana").is_err())
+    assert(taring.parse_dice("").is_err())
+    assert(taring.parse_dice("2d6*3").is_err())
+}
+
+@test fn total_sums_rolls_and_modifier() {
+    rolls: []i32 = [3, 5, 6]
+    assert(taring.total(&rolls, 2) == 16)
+    assert(taring.total(&rolls, -2) == 12)
+    single: []i32 = [1]
+    assert(taring.total(&single, 0) == 1)
+}
+
+@test fn roll_detailed_returns_valid_faces_and_total() {
+    dice := taring.Dice { count: 5, sides: 6, modifier: 3 }
+    match taring.roll_detailed(&dice) {
+        .Ok(r) => {
+            assert(r.rolls.len == 5)
+            mut sum := 0
+            for v in r.rolls {
+                assert(v >= 1 && v <= 6)
+                sum += v
+            }
+            assert(r.total == sum + 3)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn roll_returns_total_only() {
+    dice := taring.Dice { count: 1, sides: 2, modifier: 0 }
+    match taring.roll(&dice) {
+        .Ok(v) => { assert(v == 1 || v == 2) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}

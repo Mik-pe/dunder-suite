@@ -1,0 +1,30 @@
+// procent — percentage math.
+
+pub fn percent_of(x: f64, y: f64) -> f64 {
+    x / 100.0 * y
+}
+
+pub fn share(a: f64, b: f64) -> Result<f64, string> {
+    if b == 0.0 { return .Err("cannot divide by zero") }
+    .Ok(a / b * 100.0)
+}
+
+pub fn change(a: f64, b: f64) -> Result<f64, string> {
+    if a == 0.0 { return .Err("percent change from 0 is undefined") }
+    .Ok((b - a) / a * 100.0)
+}
+
+// Two-decimal display formatting via integer math on v*100.
+pub fn format_2(v: f64) -> string {
+    a := if v < 0.0 { -v } else { v }
+    if a > 1000000000000000.0 { return v.str() }
+    negative := v < 0.0
+    cents := i64(a * 100.0 + 0.5)
+    whole := cents / 100
+    frac := cents % 100
+    if !negative && whole == 0 && frac == 0 { return "0" }
+    sign := if negative { "-" } else { "" }
+    if frac == 0 { return sign + whole.str() }
+    if frac % 10 == 0 { return sign + whole.str() + "." + (frac / 10).str() }
+    sign + whole.str() + "." + f"{frac:02}"
+}

@@ -1,0 +1,128 @@
+capability network
+
+import std.net as net
+import std.parse as parse
+import std.text as text
+import sys
+
+fn to_bytes(s: string) -> []u8 {
+    mut out: []u8 = []
+    for b in s.bytes() { out.push(u8(b)) }
+    out
+}
+
+pub fn bytes_of(s: string) -> []u8 {
+    to_bytes(s)
+}
+
+// Reads from a client socket until EOF or a short quiet window after data.
+pub fn drain_reply(stream: &net.TcpStream) -> string {
+    _ := stream.set_nonblocking(true)
+    mut reply: []u8 = []
+    mut quiet_until := sys.now_ms() + 300
+    while true {
+        mut chunk: []u8 = []
+        read := stream.read_append(&mut chunk, 65536)
+        if read.ok && read.count > 0 {
+            for b in chunk { reply.push(b) }
+            quiet_until = sys.now_ms() + 300
+            continue
+        }
+        if read.eof { break }
+        if !read.ok && !read.would_block { break }
+        remaining := quiet_until - sys.now_ms()
+        if remaining <= 0 { break }
+        mut poll := net.PollSet::new()
+        poll.add(stream.fd(), net.poll_in())
+        result := poll.poll(i32(remaining))
+        if !result.ok || result.count == 0 { break }
+    }
+    decoded := sys.decode_u8(&reply)
+    if decoded.ok { return decoded.value }
+    ""
+}
+
+// Echoes everything the peer sends until EOF or a 1000 ms quiet window.
+pub fn echo_once(stream: &net.TcpStream) -> i64 {
+    configured := stream.set_nonblocking(true)
+    if !configured.ok { return 0 }
+    mut total: i64 = 0
+    mut quiet_until := sys.now_ms() + 1000
+    while true {
+        mut chunk: []u8 = []
+        read := stream.read_append(&mut chunk, 65536)
+        if read.ok && read.count > 0 {
+            written := net.write_all(stream, &chunk)
+            if !written.ok { return total }
+            total += read.count
+            quiet_until = sys.now_ms() + 1000
+            continue
+        }
+        if read.eof { return total }
+        if !read.ok && !read.would_block { return total }
+        remaining := quiet_until - sys.now_ms()
+        if remaining <= 0 { return total }
+        mut poll := net.PollSet::new()
+        poll.add(stream.fd(), net.poll_in())
+        result := poll.poll(i32(remaining))
+        if !result.ok || result.count == 0 { return total }
+    }
+    return 0
+}
+
+pub fn parse_ipv4(host: string) -> Result<(u8, u8, u8, u8), string> {
+    parts := text.split(host, ".")
+    if parts.len != 4 { return .Err("host must be an IPv4 dotted quad: " + host) }
+    mut octets: []i32 = []
+    for p in parts {
+        n := parse.integer(p)
+        if !n.ok || n.value < 0 || n.value > 255 {
+            return .Err("bad IPv4 octet '" + p + "' in " + host)
+        }
+        octets.push(i32(n.value))
+    }
+    .Ok((u8(octets[0]), u8(octets[1]), u8(octets[2]), u8(octets[3])))
+}
+
+// Single-threaded self-test dance: listener + client in one call.
+pub fn roundtrip(port: u16, message: string) -> Result<string, string> {
+    listen := net.TcpListener::listen_addr(
+        net.SocketAddr { ip: .V4(127, 0, 0, 1), port: port, scope_id: 0 }, 4)
+    if !listen.ok { return .Err("cannot listen: " + sys.error_message(listen.error)) }
+    mut listener := listen.listener
+    bound := net.local_port(&listener)
+    connect := net.TcpStream::connect_addr(
+        net.SocketAddr { ip: .V4(127, 0, 0, 1), port: u16(bound), scope_id: 0 })
+    if !connect.ok { return .Err("cannot connect: " + sys.error_message(connect.error)) }
+    mut client := connect.stream
+    payload := to_bytes(message)
+    if payload.len > 0 {
+        written := net.write_all(&client, &payload)
+        if !written.ok {
+            _ := client.close()
+            return .Err("cannot write client payload")
+        }
+    }
+    accepted := listener.accept()
+    if !accepted.ok {
+        _ := client.close()
+        return .Err("cannot accept: " + sys.error_message(accepted.error))
+    }
+    mut server := accepted.stream
+    echoed := echo_once(&server)
+    _ := server.close()
+    mut reply: []u8 = []
+    mut rounds := 0
+    while rounds < 64 {
+        read := client.read_append(&mut reply, 65536)
+        if !read.ok || read.eof || read.count == 0 { break }
+        rounds += 1
+    }
+    _ := client.close()
+    if echoed != i64(payload.len) {
+        return .Err("echoed " + echoed.str() + " bytes, sent " + payload.len.str())
+    }
+    decoded := sys.decode_u8(&reply)
+    if !decoded.ok { return .Err("reply is not valid UTF-8") }
+    .Ok(decoded.value)
+}

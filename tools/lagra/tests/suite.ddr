@@ -1,0 +1,102 @@
+capability filesystem
+
+import std.fs as fs
+import sys
+
+import ..src.lagra as lagra
+
+@test fn set_get_roundtrip_through_disk() {
+    dir := fs.temp_dir("lagra-suite-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/store.json"
+
+    match lagra.load(path) {
+        .Ok(empty) => {
+            mut s := empty
+            match s.set("b-key", "two") { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+            match s.set("a-key", "one") { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+            match s.set("a-key", "uno") { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+            assert(s.len() == 2)
+            match lagra.save(&s, path) { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+
+    match lagra.load(path) {
+        .Ok(reopened) => {
+            assert(reopened.len() == 2)
+            keys := reopened.keys_sorted()
+            assert(keys.len == 2)
+            assert(keys[0] == "a-key")
+            assert(keys[1] == "b-key")
+            match reopened.get("a-key") {
+                .Ok(v) => { assert(v == "uno") },
+                .Err(e) => { assert(e.len >= 0); assert(false) },
+            }
+            assert(reopened.get("missing").is_err())
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn set_rejects_empty_keys_and_remove_reports_missing() {
+    dir := fs.temp_dir("lagra-suite-rules-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    match lagra.load(root + "/none.json") {
+        .Ok(empty) => {
+            mut s := empty
+            assert(s.set("", "v").is_err())
+            assert(!s.remove("ghost"))
+            match s.set("k", "v") { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+            assert(s.remove("k"))
+            assert(!s.remove("k"))
+            assert(s.len() == 0)
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn save_writes_sorted_keys_to_disk() {
+    dir := fs.temp_dir("lagra-suite-sorted-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+    path := root + "/sorted.json"
+
+    match lagra.load(path) {
+        .Ok(empty) => {
+            mut s := empty
+            match s.set("zeta", "26") { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+            match s.set("alpha", "1") { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+            match lagra.save(&s, path) { .Ok => {}, .Err(e) => { assert(e.len >= 0); assert(false) } }
+        },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    written := sys.read_text(path)
+    assert(written.ok)
+    assert(written.value == "{\"alpha\":\"1\",\"zeta\":\"26\"}\n")
+}
+
+@test fn load_rejects_broken_stores() {
+    dir := fs.temp_dir("lagra-suite-broken-")
+    assert(dir.ok)
+    root := dir.value
+    defer { _ := fs.remove_all(root) }
+
+    garbage := root + "/garbage.json"
+    assert(sys.write_text(garbage, "{not json").ok)
+    assert(lagra.load(garbage).is_err())
+
+    non_string := root + "/non_string.json"
+    assert(sys.write_text(non_string, "{\"a\": 1}").ok)
+    assert(lagra.load(non_string).is_err())
+
+    non_object := root + "/non_object.json"
+    assert(sys.write_text(non_object, "[]").ok)
+    assert(lagra.load(non_object).is_err())
+}

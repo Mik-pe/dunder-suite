@@ -1,0 +1,80 @@
+import std.bytes as bytes
+import std.json as json
+
+// States: 0 = start of field, 1 = in unquoted field, 2 = in quoted field,
+// 3 = just saw a closing quote.
+pub fn parse_csv(input: string) -> Result<[][]string, string> {
+    data := input.bytes()
+    mut rows: [][]string = []
+    mut row: []string = []
+    mut cell: []u8 = []
+    mut state := 0
+    mut i := 0
+    while i < data.len {
+        mut b := data[i]
+        if b == 13 && i + 1 < data.len && data[i + 1] == 10 { i += 1; b = data[i] }
+        if state == 0 {
+            if b == 34 { state = 2 }
+            else if b == 44 { row.push("") }
+            else if b == 10 {
+                row.push("")
+                rows.push(row.clone())
+                row.clear()
+            } else { cell.push(u8(b)); state = 1 }
+        } else if state == 1 {
+            if b == 44 || b == 10 {
+                text := bytes.decode(&cell).value
+                row.push(text.clone())
+                cell.clear()
+                state = 0
+                if b == 10 {
+                    rows.push(row.clone())
+                    row.clear()
+                }
+            } else { cell.push(u8(b)) }
+        } else if state == 2 {
+            if b == 34 { state = 3 } else { cell.push(u8(b)) }
+        } else {
+            if b == 34 { cell.push(b'"'); state = 2 }
+            else if b == 44 || b == 10 {
+                text := bytes.decode(&cell).value
+                row.push(text.clone())
+                cell.clear()
+                state = 0
+                if b == 10 {
+                    rows.push(row.clone())
+                    row.clear()
+                }
+            } else {
+                return .Err(f"unexpected byte {i32(b)} after closing quote at offset {i}")
+            }
+        }
+        i += 1
+    }
+    if state == 2 { return .Err("unterminated quoted field") }
+    if state != 0 || row.len > 0 {
+        text := bytes.decode(&cell).value
+        row.push(text.clone())
+        rows.push(row.clone())
+    }
+    .Ok(rows)
+}
+
+pub fn to_json(rows: &[][]string, header: &[]string) -> string {
+    mut w := json.Writer::new()
+    w.array()
+    for row in rows {
+        w.object()
+        for i in 0..header.len {
+            if i < row.len {
+                w.key(header[i])
+                w.string(row[i])
+            }
+        }
+        w.end()
+    }
+    w.end()
+    done := w.finish()
+    if done.ok { return done.value }
+    "[]"
+}

@@ -1,0 +1,43 @@
+import std.text as text
+
+import ..src.radbryt as radbryt
+
+@test fn wrap_text_wraps_on_spaces_within_width() {
+    text_in := "aa bb cc dd ee ff"
+    wrapped := radbryt.wrap_text(text_in, 10)
+    lines := text.split(wrapped, "\n")
+    assert(lines.len == 2)
+    assert(lines[0] == "aa bb cc")
+    assert(lines[1] == "dd ee ff")
+}
+
+@test fn wrap_text_keeps_long_words_unbroken() {
+    wrapped := radbryt.wrap_text("tiny supercalifragilistic tiny", 8)
+    lines := text.split(wrapped, "\n")
+    assert(lines.len == 3)
+    assert(lines[0] == "tiny")
+    assert(lines[1] == "supercalifragilistic")
+    assert(lines[2] == "tiny")
+}
+
+@test fn wrap_text_preserves_paragraph_breaks() {
+    wrapped := radbryt.wrap_text("one two\n\nthree four", 40)
+    assert(wrapped == "one two\n\nthree four")
+    joined := radbryt.wrap_text("a\nb\nc", 40)
+    assert(joined == "a b c")
+}
+
+@test fn wrap_text_is_rune_aware() {
+    wrapped := radbryt.wrap_text("åäö åäö åäö", 8)
+    lines := text.split(wrapped, "\n")
+    assert(lines.len == 2)
+    assert(lines[0] == "åäö åäö")
+    assert(lines[1] == "åäö")
+}
+
+@test fn wrap_text_edge_cases() {
+    assert(radbryt.wrap_text("", 10) == "")
+    assert(radbryt.wrap_text("\n\n\n", 10) == "")
+    single := radbryt.wrap_text("solo", 10)
+    assert(single == "solo")
+}

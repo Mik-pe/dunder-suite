@@ -1,0 +1,61 @@
+import ..src.prim as prim
+
+@test fn is_prime_handles_small_cases() {
+    assert(prim.is_prime(2))
+    assert(prim.is_prime(3))
+    assert(!prim.is_prime(4))
+    assert(prim.is_prime(97))
+    assert(!prim.is_prime(1))
+    assert(!prim.is_prime(0))
+    assert(!prim.is_prime(-7))
+}
+
+@test fn is_prime_rejects_composites_with_large_factors() {
+    assert(!prim.is_prime(104729 * 2))
+    assert(prim.is_prime(104729))
+}
+
+@test fn factorize_expands_into_sorted_factors() {
+    factors := prim.factorize(360)
+    assert(factors.len == 6)
+    assert(factors[0] == 2)
+    assert(factors[1] == 2)
+    assert(factors[2] == 2)
+    assert(factors[3] == 3)
+    assert(factors[4] == 3)
+    assert(factors[5] == 5)
+}
+
+@test fn factorize_keeps_primes_whole() {
+    primes := prim.factorize(13)
+    assert(primes.len == 1)
+    assert(primes[0] == 13)
+    assert(prim.factorize(2).len == 1)
+}
+
+@test fn format_factors_uses_exponent_notation() {
+    factors := prim.factorize(360)
+    assert(prim.format_factors(&factors) == "2^3 * 3^2 * 5")
+}
+
+@test fn format_factors_plain_prime() {
+    assert(prim.format_factors(&prim.factorize(13)) == "13")
+}
+
+@test fn nth_prime_is_one_based() {
+    assert(prim.nth_prime(1) == 2)
+    assert(prim.nth_prime(2) == 3)
+    assert(prim.nth_prime(10) == 29)
+    assert(prim.nth_prime(25) == 97)
+    assert(prim.nth_prime(0) == -1)
+}
+
+@test fn first_primes_lists_in_order() {
+    primes := prim.first_primes(5)
+    assert(primes.len == 5)
+    assert(primes[0] == 2)
+    assert(primes[1] == 3)
+    assert(primes[2] == 5)
+    assert(primes[3] == 7)
+    assert(primes[4] == 11)
+}

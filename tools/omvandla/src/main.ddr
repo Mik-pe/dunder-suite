@@ -1,0 +1,31 @@
+import std.parse as parse
+import sys
+
+import omvandla
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: omvandla VALUE FROM TO")
+    _ := sys.eprint("  temperature: c f k   distance: km mi m ft")
+    _ := sys.eprint("  weight: kg lb g      data: b kb mb gb (1000-based)")
+    return 2
+}
+
+fn main() -> i32 {
+    if sys.arg_count() != 4 { return usage() }
+    mut value := 0.0
+    mut failure := ""
+    match parse.value<f64>(sys.arg(1)) {
+        .Ok(v) => { value = v },
+        .Err(e) => { failure = e.clone() },
+    }
+    if failure.len > 0 {
+        _ := sys.eprint("omvandla: " + failure)
+        return 1
+    }
+    from_unit := sys.arg(2)
+    to_unit := sys.arg(3)
+    match omvandla.convert(value, from_unit, to_unit) {
+        .Ok(v) => { print(omvandla.format_2(v)); return 0 },
+        .Err(e) => { _ := sys.eprint("omvandla: " + e.clone()); return 1 },
+    }
+}

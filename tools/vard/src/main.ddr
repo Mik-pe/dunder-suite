@@ -1,0 +1,19 @@
+import sys
+
+import vard
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: vard")
+    _ := sys.eprint("prints host information as aligned `key  value` lines:")
+    _ := sys.eprint("os, arch, target, cpus, pid")
+    return 2
+}
+
+fn main() -> i32 {
+    if sys.arg_count() > 1 {
+        _ := sys.eprint("vard: unexpected argument " + sys.arg(1))
+        return 2
+    }
+    print(vard.render(&vard.collect()))
+    return 0
+}

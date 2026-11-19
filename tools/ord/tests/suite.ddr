@@ -1,0 +1,40 @@
+import ..src.ord as ord
+
+@test fn count_text_counts_lines_words_bytes() {
+    c := ord.count_text("one two\nthree\n")
+    assert(c.lines == 2)
+    assert(c.words == 3)
+    assert(c.bytes == 14)
+
+    single := ord.count_text("solo")
+    assert(single.lines == 1)
+    assert(single.words == 1)
+    assert(single.bytes == 4)
+}
+
+@test fn count_text_handles_empty_and_whitespace() {
+    empty := ord.count_text("")
+    assert(empty.lines == 0 && empty.words == 0 && empty.bytes == 0)
+
+    blank := ord.count_text("  \t \n")
+    assert(blank.lines == 1)
+    assert(blank.words == 0)
+    assert(blank.bytes == 5)
+}
+
+@test fn render_formats_aligned_columns() {
+    c := ord.count_text("a b\nc\n")
+    line := ord.render(&c, "in.txt")
+    assert(line == "      2       3       6 in.txt")
+}
+
+@test fn add_accumulates_totals() {
+    mut total := ord.Counts { lines: 0, words: 0, bytes: 0 }
+    a := ord.count_text("x\n")
+    b := ord.count_text("y z")
+    ord.add(&mut total, &a)
+    ord.add(&mut total, &b)
+    assert(total.lines == 2)
+    assert(total.words == 3)
+    assert(total.bytes == 5)
+}

@@ -1,0 +1,93 @@
+import std.text as text
+
+pub fn to_lines(content: string) -> []string {
+    mut lines: []string = []
+    parts := text.split(content, "\n")
+    last := parts.len - 1
+    mut i := 0
+    for part in parts {
+        if !(i == last && part.len == 0) {
+            lines.push(part.clone())
+        }
+        i += 1
+    }
+    lines
+}
+
+fn is_ws(b: i32) -> bool {
+    b == 32 || b == 9 || b == 10 || b == 13 || b == 11 || b == 12
+}
+
+fn split_words(line: string) -> []string {
+    mut out: []string = []
+    mut start := -1
+    for i in 0..line.len + 1 {
+        if i == line.len || is_ws(line[i]) {
+            if start >= 0 {
+                out.push(line[start..i])
+                start = -1
+            }
+        } else if start < 0 {
+            start = i
+        }
+    }
+    out
+}
+
+fn rune_len(s: string) -> i32 {
+    mut n := 0
+    for r in s.runes() {
+        n += 1
+    }
+    n
+}
+
+fn wrap_paragraph(words: &[]string, width: i32) -> string {
+    mut out := ""
+    mut current := ""
+    mut cur_len := 0
+    for w in words {
+        wl := rune_len(w)
+        if current.len == 0 {
+            current = w.clone()
+            cur_len = wl
+        } else if cur_len + 1 + wl <= width {
+            current = current + " " + w
+            cur_len += 1 + wl
+        } else {
+            if out.len > 0 { out = out + "\n" }
+            out = out + current
+            current = w.clone()
+            cur_len = wl
+        }
+    }
+    if current.len > 0 {
+        if out.len > 0 { out = out + "\n" }
+        out = out + current
+    }
+    out
+}
+
+pub fn wrap_text(input: string, width: i32) -> string {
+    if width < 1 { return input.clone() }
+    mut out := ""
+    mut words: []string = []
+    for line in to_lines(input) {
+        if text.trim(line).len == 0 {
+            if words.len > 0 {
+                if out.len > 0 { out = out + "\n\n" }
+                out = out + wrap_paragraph(&words, width)
+                words.clear()
+            }
+        } else {
+            for w in split_words(line) {
+                words.push(w.clone())
+            }
+        }
+    }
+    if words.len > 0 {
+        if out.len > 0 { out = out + "\n\n" }
+        out = out + wrap_paragraph(&words, width)
+    }
+    out
+}

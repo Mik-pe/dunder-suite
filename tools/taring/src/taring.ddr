@@ -1,0 +1,100 @@
+// taring — dice roller (NdM with optional +/-K modifier).
+//
+// Rolls come from std.crypto scaled the same way as slump: 7 random
+// bytes (56 bits) scaled into [1, sides] — no modulo bias.
+
+import std.crypto as crypto
+import std.parse as parse
+
+pub struct Dice {
+    count: i32,
+    sides: i32,
+    modifier: i32,
+}
+
+pub struct RollResult {
+    rolls: []i32,
+    total: i32,
+}
+
+fn is_digit(b: i32) -> bool {
+    b >= 48 && b <= 57
+}
+
+pub fn parse_dice(expr: string) -> Result<Dice, string> {
+    mut i := 0
+    while i < expr.len && is_digit(expr[i]) { i += 1 }
+    if i >= expr.len || (expr[i] != 100 && expr[i] != 68) {
+        return .Err("expected NdM like 2d6+3 or d20")
+    }
+    d_at := i
+    mut count: i32 = 1
+    if d_at > 0 {
+        n := parse.integer(expr[0..d_at])
+        if !n.ok { return .Err("invalid die count") }
+        count = i32(n.value)
+    }
+    if count < 1 || count > 1000 { return .Err("die count must be 1..1000") }
+    mut j := d_at + 1
+    while j < expr.len && is_digit(expr[j]) { j += 1 }
+    if j == d_at + 1 { return .Err("missing sides after 'd'") }
+    s := parse.integer(expr[d_at + 1..j])
+    if !s.ok { return .Err("invalid die sides") }
+    sides := i32(s.value)
+    if sides < 2 { return .Err("sides must be >= 2") }
+    if sides > 100000 { return .Err("sides must be <= 100000") }
+    mut modifier := 0
+    if j < expr.len {
+        if expr[j] != 43 && expr[j] != 45 {
+            return .Err(f"unexpected character at position {j}")
+        }
+        m := parse.integer(expr[j..expr.len])
+        if !m.ok { return .Err("invalid modifier") }
+        if m.value > 1000000 || m.value < -1000000 {
+            return .Err("modifier must be within +/-1000000")
+        }
+        modifier = i32(m.value)
+    }
+    .Ok(Dice { count: count, sides: sides, modifier: modifier })
+}
+
+fn die_face(sides: i32) -> Result<i32, string> {
+    drawn := crypto.random(7)
+    if !drawn.ok { return .Err("random generation failed") }
+    mut raw: i64 = 0
+    for b in drawn.value {
+        raw = raw * 256 + i64(b)
+    }
+    scaled := f64(raw) / 72057594037927936.0
+    mut face := 1 + i32(scaled * f64(sides))
+    if face > sides { face = sides }
+    .Ok(face)
+}
+
+pub fn total(rolls: &[]i32, modifier: i32) -> i32 {
+    mut sum := 0
+    for r in rolls { sum += r }
+    sum + modifier
+}
+
+pub fn roll_detailed(dice: &Dice) -> Result<RollResult, string> {
+    mut rolls: []i32 = []
+    mut i := 0
+    while i < dice.count {
+        match die_face(dice.sides) {
+            .Ok(face) => {
+                rolls.push(face)
+            },
+            .Err(e) => { return .Err(e.clone()) },
+        }
+        i += 1
+    }
+    .Ok(RollResult { rolls: rolls.clone(), total: total(&rolls, dice.modifier) })
+}
+
+pub fn roll(dice: &Dice) -> Result<i64, string> {
+    match roll_detailed(dice) {
+        .Ok(r) => { .Ok(i64(r.total)) },
+        .Err(e) => { .Err(e.clone()) },
+    }
+}

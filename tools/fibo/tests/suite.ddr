@@ -1,0 +1,53 @@
+import ..src.fibo as fibo
+
+@test fn nth_is_one_based() {
+    match fibo.nth(1) {
+        .Ok(v) => { assert(v == 1) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match fibo.nth(2) {
+        .Ok(v) => { assert(v == 1) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+    match fibo.nth(10) {
+        .Ok(v) => { assert(v == 55) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn nth_at_the_i64_limit() {
+    match fibo.nth(92) {
+        .Ok(v) => { assert(v == 7540113804746346429) },
+        .Err(e) => { assert(e.len >= 0); assert(false) },
+    }
+}
+
+@test fn nth_rejects_out_of_range() {
+    assert(fibo.nth(0).is_err())
+    assert(fibo.nth(-5).is_err())
+    assert(fibo.nth(93).is_err())
+}
+
+@test fn fibonacci_lists_first_n() {
+    values := fibo.fibonacci(10)
+    assert(values.len == 10)
+    assert(values[0] == 1)
+    assert(values[1] == 1)
+    assert(values[2] == 2)
+    assert(values[9] == 55)
+}
+
+@test fn fibonacci_small_counts() {
+    assert(fibo.fibonacci(0).len == 0)
+    single := fibo.fibonacci(1)
+    assert(single.len == 1)
+    assert(single[0] == 1)
+    three := fibo.fibonacci(3)
+    assert(three[2] == 2)
+}
+
+@test fn fibonacci_caps_at_92_entries() {
+    values := fibo.fibonacci(200)
+    assert(values.len == 92)
+    assert(values[91] == 7540113804746346429)
+}

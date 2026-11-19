@@ -1,0 +1,47 @@
+capability filesystem
+
+import std.array as array
+import std.fs as fs
+import sys
+
+pub struct SizeRow {
+    path: string,
+    bytes: i64,
+}
+
+pub fn tree_size(path: string) -> i64 {
+    info := sys.metadata(path)
+    if !info.ok { return 0 }
+    kind := sys.file_kind(info)
+    if kind == .File { return info.size }
+    if kind != .Directory { return 0 }
+    listed := fs.list_dir(path)
+    if !listed.ok { return 0 }
+    mut total: i64 = 0
+    for name in listed.entries {
+        total += tree_size(path + "/" + name)
+    }
+    total
+}
+
+pub fn format_row(bytes: i64, path: string) -> string {
+    mut digits := bytes.str()
+    while digits.len < 12 { digits = " " + digits }
+    digits + "  " + path
+}
+
+fn compare_rows(a: &SizeRow, b: &SizeRow) -> Ordering {
+    if a.bytes > b.bytes { return .Less }
+    if a.bytes == b.bytes && a.path < b.path { return .Less }
+    if a.bytes == b.bytes && a.path == b.path { return .Equal }
+    .Greater
+}
+
+pub fn rank(rows: &[]SizeRow, limit: i32) -> []SizeRow {
+    mut sorted := rows.clone()
+    array.sort_by<SizeRow>(&mut sorted, compare_rows)
+    if limit >= 0 {
+        while sorted.len > limit { _ := sorted.pop() }
+    }
+    sorted
+}

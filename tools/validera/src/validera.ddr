@@ -1,0 +1,7 @@
+import std.json as json
+
+pub fn validate(text: string) -> Result<(), string> {
+    doc := json.Doc::parse_text(text)
+    if doc.ok { return .Ok }
+    .Err(f"{doc.error} at byte {doc.offset}")
+}

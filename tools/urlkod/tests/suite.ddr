@@ -1,0 +1,50 @@
+import ..src.urlkod as urlkod
+
+@test fn encode_keeps_unreserved_and_percent_encodes_the_rest() {
+    assert(urlkod.encode("hello world", false) == "hello%20world")
+    assert(urlkod.encode("aB1-._~", false) == "aB1-._~")
+    assert(urlkod.encode("", false) == "")
+    assert(urlkod.encode("100%", false) == "100%25")
+    assert(urlkod.encode("a/b?c=d&e", false) == "a%2Fb%3Fc%3Dd%26e")
+    assert(urlkod.encode("mön", false) == "m%C3%B6n")
+}
+
+@test fn encode_full_only_keeps_alphanumerics() {
+    assert(urlkod.encode("aB1-._~", true) == "aB1%2D%2E%5F%7E")
+    assert(urlkod.encode("hello world", true) == "hello%20world")
+    assert(urlkod.encode("a+b", true) == "a%2Bb")
+}
+
+@test fn decode_unescapes_percent_and_plus() {
+    match urlkod.decode("hello%20world") { .Ok(v) => { assert(v == "hello world") }, .Err(_) => { assert(false) } }
+    match urlkod.decode("m%C3%B6n") { .Ok(v) => { assert(v == "mön") }, .Err(_) => { assert(false) } }
+    match urlkod.decode("a+b") { .Ok(v) => { assert(v == "a b") }, .Err(_) => { assert(false) } }
+    match urlkod.decode("%2f") { .Ok(v) => { assert(v == "/") }, .Err(_) => { assert(false) } }
+    match urlkod.decode("%2F") { .Ok(v) => { assert(v == "/") }, .Err(_) => { assert(false) } }
+    match urlkod.decode("a%2Bb") { .Ok(v) => { assert(v == "a+b") }, .Err(_) => { assert(false) } }
+    match urlkod.decode("") { .Ok(v) => { assert(v == "") }, .Err(_) => { assert(false) } }
+}
+
+@test fn decode_rejects_malformed_escapes() {
+    assert(urlkod.decode("%").is_err())
+    assert(urlkod.decode("%A").is_err())
+    assert(urlkod.decode("%G1").is_err())
+    assert(urlkod.decode("%1G").is_err())
+    assert(urlkod.decode("abc%2").is_err())
+}
+
+@test fn roundtrips_through_both_modes() {
+    samples := ["hello world", "mön & så vidare", "a+b=c?d/e", "100%", "!#$&*()[]"]
+    for s in samples {
+        enc := urlkod.encode(s.clone(), false)
+        match urlkod.decode(enc) {
+            .Ok(v) => { assert(v == s) },
+            .Err(_) => { assert(false) },
+        }
+        enc_full := urlkod.encode(s.clone(), true)
+        match urlkod.decode(enc_full) {
+            .Ok(v) => { assert(v == s) },
+            .Err(_) => { assert(false) },
+        }
+    }
+}

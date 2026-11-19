@@ -1,0 +1,76 @@
+capability filesystem
+
+import std.parse as parse
+import std.text as text
+import std.fs as fs
+import sys
+
+import storlek
+
+fn usage() -> i32 {
+    _ := sys.eprint("usage: storlek [-s N] [PATH...]")
+    _ := sys.eprint("  -s N      show only the N largest entries (default 10)")
+    _ := sys.eprint("  PATH...   directories to measure (default: .)")
+    _ := sys.eprint("per top-level entry under each PATH: total bytes of regular")
+    _ := sys.eprint("files, recursively; largest first, then a grand total line")
+    return 2
+}
+
+fn main() -> i32 {
+    mut limit := 10
+    mut paths: []string = []
+    count := sys.arg_count()
+    mut i := 1
+    while i < count {
+        a := sys.arg(i)
+        if a == "-s" {
+            if i + 1 >= count { _ := sys.eprint("storlek: missing value after -s"); return 2 }
+            i += 1
+            n := parse.integer(sys.arg(i))
+            if !n.ok || n.value < 1 || n.value > 100000 {
+                _ := sys.eprint("storlek: -s must be 1..100000")
+                return 2
+            }
+            limit = i32(n.value)
+        } else if text.starts_with(a, "-") && a.len > 1 {
+            _ := sys.eprint("storlek: unknown flag " + a)
+            return 2
+        } else {
+            paths.push(a.clone())
+        }
+        i += 1
+    }
+    if paths.len == 0 { paths.push(".") }
+
+    mut rows: []storlek.SizeRow = []
+    mut grand: i64 = 0
+    for root in paths {
+        info := sys.metadata(root)
+        if !info.ok {
+            _ := sys.eprint("storlek: cannot read " + root + ": " + sys.error_message(info.error))
+            return 1
+        }
+        if sys.file_kind(info) == .File {
+            rows.push(storlek.SizeRow { path: root.clone(), bytes: info.size })
+            grand += info.size
+            continue
+        }
+        listed := fs.list_dir(root)
+        if !listed.ok {
+            _ := sys.eprint("storlek: cannot list " + root + ": " + sys.error_message(listed.error))
+            return 1
+        }
+        for name in listed.entries {
+            full := root + "/" + name
+            bytes := storlek.tree_size(full)
+            rows.push(storlek.SizeRow { path: full, bytes: bytes })
+            grand += bytes
+        }
+    }
+
+    for row in storlek.rank(&rows, limit) {
+        print(storlek.format_row(row.bytes, row.path))
+    }
+    print(storlek.format_row(grand, "TOTAL"))
+    return 0
+}

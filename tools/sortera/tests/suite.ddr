@@ -1,0 +1,56 @@
+import ..src.sortera as sortera
+
+@test fn numeric_sort_orders_by_value_not_text() {
+    mut lines: []string = ["9", "10", "2"]
+    sorted := sortera.sort_lines(&lines, true, false, false)
+    assert(sorted.len == 3)
+    assert(sorted[0] == "2" && sorted[1] == "9" && sorted[2] == "10")
+
+    text_sorted := sortera.sort_lines(&lines, false, false, false)
+    assert(text_sorted[0] == "10" && text_sorted[1] == "2" && text_sorted[2] == "9")
+}
+
+@test fn reverse_flips_after_sorting() {
+    mut lines: []string = ["b", "a", "c"]
+    sorted := sortera.sort_lines(&lines, false, true, false)
+    assert(sorted.len == 3)
+    assert(sorted[0] == "c" && sorted[1] == "b" && sorted[2] == "a")
+}
+
+@test fn unique_keeps_one_copy_after_sorting() {
+    mut lines: []string = ["b", "a", "b", "c", "a"]
+    sorted := sortera.sort_lines(&lines, false, false, true)
+    assert(sorted.len == 3)
+    assert(sorted[0] == "a" && sorted[1] == "b" && sorted[2] == "c")
+}
+
+@test fn numeric_mode_sends_unparseable_lines_last_in_original_order() {
+    mut lines: []string = ["b", "9", "x", "10", "a"]
+    sorted := sortera.sort_lines(&lines, true, false, false)
+    assert(sorted.len == 5)
+    assert(sorted[0] == "9" && sorted[1] == "10")
+    assert(sorted[2] == "b" && sorted[3] == "x" && sorted[4] == "a")
+}
+
+@test fn numeric_reverse_keeps_tail_last() {
+    mut lines: []string = ["9", "b", "10"]
+    sorted := sortera.sort_lines(&lines, true, true, false)
+    assert(sorted.len == 3)
+    assert(sorted[0] == "10" && sorted[1] == "9" && sorted[2] == "b")
+}
+
+@test fn numeric_unique_dedupes_equal_values() {
+    mut lines: []string = ["2", "10", "2", "9"]
+    sorted := sortera.sort_lines(&lines, true, false, true)
+    assert(sorted.len == 3)
+    assert(sorted[0] == "2" && sorted[1] == "9" && sorted[2] == "10")
+}
+
+@test fn empty_input_and_negatives() {
+    mut lines: []string = []
+    assert(sortera.sort_lines(&lines, false, false, false).len == 0)
+
+    mut values: []string = ["-5", "3", "-10"]
+    sorted := sortera.sort_lines(&values, true, false, false)
+    assert(sorted[0] == "-10" && sorted[1] == "-5" && sorted[2] == "3")
+}
