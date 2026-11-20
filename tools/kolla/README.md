@@ -23,9 +23,7 @@ a.txt: OK
 
 `--check` prints one `path: OK` / `path: FAIL (...)` line per entry and exits
 1 on any mismatch, unreadable file, or malformed line. Files are capped at
-64 MiB. Note for this Dunder build: `std.sha256.digest` operates on `[]i32`
-arrays while the rest of the byte APIs use `[]u8`; the library converts at
-the boundary.
+64 MiB.
 
 ## Library
 
@@ -38,7 +36,7 @@ the boundary.
 
 | Area | What |
 | --- | --- |
-| `std.sha256`, `std.bytes` | digest + hex rendering |
+| `std.sha256`, `std.bytes` | `digest_bytes` + hex rendering |
 | `sys` | metadata / raw file reads — no capability line required |
 | `std.fs` (tests only) | `capability filesystem` for temp-dir fixtures |
 

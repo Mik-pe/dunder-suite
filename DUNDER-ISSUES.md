@@ -230,7 +230,10 @@ The 50 `tools/` projects were written by subagents working from
     hashing pipeline needs explicit conversion loops at the boundary
     (hit independently by the `kolla` and `dublett` agents). A unifying
     conversion helper (or `[]i32` overloads) would remove a whole class of
-    glue code.
+    glue code. *Post-script:* the stdlib source also has
+    `sha256.digest_bytes(&[]u8)` — undocumented in `docs/standard.md` —
+    which `kolla` now uses directly. The split remains, but the u8-native
+    digest deserves a docs mention.
 
 33. **Bare calls to instantiated generic helpers fail with a mangled-name
     error.** `array.reverse(&mut v)` fails where

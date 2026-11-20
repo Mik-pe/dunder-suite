@@ -6,20 +6,8 @@ import sys
 // sha256sum-style checksums: lowercase hex, two spaces, path. Files are
 // capped at 64 MiB to keep whole-file reads honest.
 
-// sha256.digest is the one stdlib byte API that works on []i32 in this
-// build; the rest of the byte world is []u8. These two helpers bridge.
-
-fn to_i32s(src: &[]u8) -> []i32 {
-    mut out: []i32 = []
-    for v in src { out.push(i32(v)) }
-    out
-}
-
-fn to_u8s(src: &[]i32) -> []u8 {
-    mut out: []u8 = []
-    for v in src { out.push(u8(v)) }
-    out
-}
+// sha256 ships two digest entry points; digest_bytes works directly on the
+// []u8 byte arrays that sys.read_u8 produces.
 
 pub fn checksum(path: string) -> Result<string, string> {
     info := sys.metadata(path)
@@ -28,7 +16,7 @@ pub fn checksum(path: string) -> Result<string, string> {
     if info.size > 67108864 { return .Err("file too large (max 64 MiB): " + path.clone()) }
     data := sys.read_u8(path)
     if !data.ok { return .Err("cannot read " + path.clone() + ": " + sys.error_message(data.error)) }
-    .Ok(bytes.hex_u8(&to_u8s(&sha256.digest(&to_i32s(&data.value)))))
+    .Ok(bytes.hex_u8(&sha256.digest_bytes(&data.value)))
 }
 
 // Verify one "<hex>  <path>" line; Ok carries an OK status line, Err carries

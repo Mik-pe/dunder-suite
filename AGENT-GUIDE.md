@@ -193,8 +193,9 @@ import std.toml
 toml.parse(text) -> {ok, error, json: string}   // TOML -> JSON text
 
 import std.sha256
-sha256.digest(&[]i32) -> []i32   // 32 bytes; NOTE: []i32 world, NOT []u8 — convert loops
-sha256.text(s) -> []i32          // render with bytes.hex_u8? NO — hex_u8 is []u8; convert i32->u8 first
+sha256.digest(&[]i32) -> []i32         // []i32 world (text.bytes() is []i32 too)
+sha256.digest_bytes(&[]u8) -> []u8     // PREFER this with sys.read_u8 input
+sha256.text(s) -> []i32                // render []i32 digest via a u8 conversion loop + bytes.hex_u8
 
 import std.crypto  // requires: Homebrew openssl@3 + argon2 present here
 crypto.random(count: i32) -> {ok, value: []u8, error}
